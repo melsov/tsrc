@@ -6,6 +6,7 @@ import { Puppet, PlaceholderPuppet, MSkin } from "../MPuppetMaster";
 import { MPlayerAvatar, DEBUG_SPHERE_DIAMETER } from "../MPlayerAvatar";
 import { MProjectileHitInfo, ProjectileType } from "../../MProjectileHitInfo";
 import { GameEntityTags } from "../../GameMain";
+import { MUtils } from "../../Util/MUtils";
 
 export abstract class MNetworkEntity
 {
@@ -93,8 +94,43 @@ class SendDataPlayerEntity
 //
 export class OtherPlayerInterpolation
 {
-    public position : Vector3 = new Vector3()
+    public position : Vector3 = new Vector3();
     public timestamp : number = 0;
+}
+
+// TODO: a single interp data class. <--YES PLEASE
+// right now OtherPlayerInterpolation, CliTarget and SendData
+// all replicate a variable (position).
+// This will get messy once there is more data to interpolate across 
+// the three of them
+
+
+export class CliTarget
+{
+    public position : Vector3 = new Vector3();
+    public timestamp : number = 0;
+   
+
+    clone() : CliTarget
+    {
+        let other = new CliTarget();
+        other.position.copyFrom(this.position);
+        other.timestamp = this.timestamp;
+        return other;
+    }
+
+    copyFrom(other : CliTarget) : void
+    {
+        this.position.copyFrom(other.position);
+        this.timestamp = other.timestamp;
+    }
+
+    static Lerp(a : CliTarget, b : CliTarget, t : number) : CliTarget
+    {
+        let l = new CliTarget();
+        l.position = Vector3.Lerp(a.position, b.position, t);
+        return l;
+    }
 }
 
 function FromToInterp(a : OtherPlayerInterpolation, b : OtherPlayerInterpolation, renderTimestamp : number) : OtherPlayerInterpolation
@@ -120,7 +156,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     
     public projectileHitsOnMe : Array<MProjectileHitInfo> = new Array<MProjectileHitInfo>();
 
-    public moveSpeed : number = .003;
+    public moveSpeed : number = .1;
     
     protected puppet : Puppet = new PlaceholderPuppet();
 
@@ -129,6 +165,11 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     protected interpBuffer : Array<OtherPlayerInterpolation> = new Array<OtherPlayerInterpolation>();
 
     public get isAPlayerEntity() : boolean { return true; }
+
+
+    // TODO: interpolate command moves for cliOwnedPlayer 
+    // each command updates a move target.
+    // player must reach the move target by next command time
 
     public getPlayerEntity() : Nullable<MNetworkPlayerEntity> { return this; }
 
@@ -160,7 +201,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     }
     
-    private sendData : SendDataPlayerEntity;
+    protected sendData : SendDataPlayerEntity;
 
     private savedCurrentPos : Nullable<Vector3> = null;
 
@@ -246,13 +287,21 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     public clearTransientStates() : void 
     {
         this.projectileHitsOnMe.length = 0;
-    }    
+    }   
+    
+    protected moveDir(cmd : CliCommand) : Vector3
+    {
+        let groundForward = MUtils.ProjectOnNormal(cmd.forward, Vector3.Up()).normalize();
+        let groundRight = Vector3.Cross(Vector3.Up(), groundForward);
+        return groundForward.scale(cmd.vertical).add(groundRight.scale(cmd.horizontal)).normalize();
+    }
     
     // server or client side prediction
     public applyCliCommand (cliCommand : CliCommand) : void
     {
-        this.sendData.position.x += cliCommand.horizontal * this.moveSpeed;
-        this.sendData.position.z += cliCommand.vertical * this.moveSpeed;
+        this.sendData.position.addInPlace(this.moveDir(cliCommand).scale(this.moveSpeed));
+        // this.sendData.position.x += cliCommand.horizontal * this.moveSpeed;
+        // this.sendData.position.z += cliCommand.vertical * this.moveSpeed;
         this.applyToPuppet(false);
     }
 
@@ -269,7 +318,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     {
         //force the puppet
         this.playerPuppet.mesh.position.copyFrom(pos);
-        this.sendData.position.copyFrom(this.playerPuppet.mesh.position);
+        this.sendData.position.copyFrom(pos); // this.playerPuppet.mesh.position);
     }
     
     public resetToThePresent() : void 
@@ -299,18 +348,17 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     
     public apply(update : MNetworkPlayerEntity) : void
     {
-        if(update.isDelta)
-        {
-            this.sendData.position.addInPlace(update.position);
-            this.applyToPuppet();
-            this.shouldDelete = update.shouldDelete;
-        } 
-        else 
+        this.shouldDelete = update.shouldDelete;
+
+        // want delta compression
+        // if(update.isDelta)
+        // {
+        //     this.sendData.position.addInPlace(update.position);
+        //     this.applyToPuppet();
+        // } 
+        // else 
         {
             this.teleport(update.position);
-            // this.sendData.position.copyFrom(absUpdate.position);
-            // this.applyToPuppet();
-            this.shouldDelete = update.shouldDelete;
         }
     }
 

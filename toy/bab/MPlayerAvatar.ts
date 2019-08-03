@@ -1,6 +1,6 @@
 import { TransformNode, Scene, Engine, Mesh, Color3, Vector3, Ray, RayHelper, MeshBuilder, PickingInfo, Nullable, Tags, AbstractMesh, Camera, Vector4 } from "babylonjs";
 import { GridMaterial } from "babylonjs-materials";
-import { MNetworkPlayerEntity, MNetworkEntity } from "./NetworkEntity/MNetworkEntity";
+import { MNetworkPlayerEntity, MNetworkEntity, CliTarget } from "./NetworkEntity/MNetworkEntity";
 import { Puppet, MSkin as MPuppetSkin } from "./MPuppetMaster";
 import { MUtils } from "../Util/MUtils";
 import { GameEntityTags, g_main_camera_name } from "../GameMain";
@@ -18,6 +18,11 @@ export class MPlayerAvatar implements Puppet
     debugRayHelper : RayHelper;
     fireRayHelper : RayHelper;
     private fireIndicatorMesh : Mesh;
+
+    public lastCliTarget : CliTarget = new CliTarget();
+    public cliTarget : CliTarget = new CliTarget();
+
+    private debugLastFireDir : Vector3 = Vector3.Forward();
 
     constructor
     (
@@ -73,7 +78,6 @@ export class MPlayerAvatar implements Puppet
     public showGettingHit(prjInfo: MProjectileHitInfo) : void 
     {
         this.toggleFireIndicator(true);
-        console.log(`show ray ? ${typeof prjInfo.ray} : ray: ${prjInfo.ray}`);
         this.fireRayHelper.hide();
         this.fireRayHelper.ray = prjInfo.ray;
         this.fireRayHelper.show(this.mesh.getScene(), new Color3(.9, .3, .5));
@@ -84,19 +88,19 @@ export class MPlayerAvatar implements Puppet
         }, 4);
     }
 
-    private getAimVector() : Vector3 
-    {
-        // // incorrect: screen space method attempt
-        // let m = MUtils.GetMVP(<Camera>this.mesh.getScene().getCameraByName(g_main_camera_name));
-        // let screenPos = Vector3.TransformCoordinates(this.mesh.position, m); 
-        // let mouse = new Vector3(this.mesh.getScene().pointerX, this.mesh.getScene().pointerY, 0);
-        // let mouseDif = mouse.subtract(mid);
-        // let d = mouse.subtract(screenPos);
-        // return new Vector3(d.x, 0, d.y);
+    // private getAimVector() : Vector3 
+    // {
+    //     // // incorrect: screen space method attempt
+    //     // let m = MUtils.GetMVP(<Camera>this.mesh.getScene().getCameraByName(g_main_camera_name));
+    //     // let screenPos = Vector3.TransformCoordinates(this.mesh.position, m); 
+    //     // let mouse = new Vector3(this.mesh.getScene().pointerX, this.mesh.getScene().pointerY, 0);
+    //     // let mouseDif = mouse.subtract(mid);
+    //     // let d = mouse.subtract(screenPos);
+    //     // return new Vector3(d.x, 0, d.y);
 
-        return new Vector3(1, 0, 0);
-        // return this.rayMousePick();
-    }
+    //     return new Vector3(1, 0, 0);
+    //     // return this.rayMousePick();
+    // }
 
     private rayMousePick() : Vector3
     {
@@ -117,9 +121,10 @@ export class MPlayerAvatar implements Puppet
 
     public get currentProjectileType() : ProjectileType { return ProjectileType.GenericLaser; }
 
-    public commandFire() : Nullable<PickingInfo>
+    public commandFire(forward : Vector3) : Nullable<PickingInfo>
     {
-        let ray = new Ray(this.mesh.position.clone(), this.getAimVector(), 30); 
+        this.debugLastFireDir.copyFrom(forward);
+        let ray = new Ray(this.mesh.position.clone(), forward, 30); 
         let pi = this.mesh.getScene().pickWithRay(ray, (mesh) => {
             if(mesh === this.mesh) return false;
             if(mesh.name === `${this.mesh.name}-shadow`) return false; // don't hit our own shadow
@@ -137,7 +142,7 @@ export class MPlayerAvatar implements Puppet
     {
         this.mesh.getScene().getEngine().runRenderLoop(() => {
             //show aim vector
-            let aimRay = new Ray(this.mesh.position, this.getAimVector().normalizeToNew(), 5);
+            let aimRay = new Ray(this.mesh.position, this.debugLastFireDir, 5);
             this.fireRayHelper.hide();
             this.fireRayHelper.ray = aimRay;
             this.fireRayHelper.show(this.mesh.getScene(), Color3.Purple());
@@ -186,6 +191,58 @@ export class MPlayerAvatar implements Puppet
         // }
     }
 
+    public getRayCollisionAdjustedPos(pos : Vector3, depth ? : number) : Vector3
+    {
+        if(MUtils.VecContainsNan(this.mesh.position))
+        {
+            // this.mesh.position.copyFrom(pos);
+            return pos.clone();
+        }
+
+        let dir = pos.subtract(this.mesh.position);
+        let mag =  dir.length();
+  
+        let udir = dir.normalizeToNew();
+        let origin = this.mesh.position; 
+
+        // ray way:
+        mag = this.boundsRadius + .3;
+        let ray = new Ray(origin, udir, mag);
+        this.debugRayHelper.ray = ray;
+
+        let pickResult = this.mesh.getScene().pickWithRay(ray, (mesh : AbstractMesh) => {
+            if(!mesh.isPickable)
+                return false;
+            let tgs = Tags.GetTags(mesh);
+            return typeof(tgs) === 'string' && tgs.indexOf(GameEntityTags.Terrain) >= 0;
+        });
+        
+        if(pickResult && pickResult.hit)
+        {
+            let normal = pickResult.getNormal(true, true);
+            if(normal)
+            {
+                // straight into a wall
+                if(Vector3.Dot(normal, udir) < -.99) {
+                    this.debugRayHelper.show(this.mesh.getScene(), Color3.Red());
+                    return this.mesh.position.clone();
+                } 
+
+                // recur with a projection in the direction along the wall
+                if(depth == undefined) depth = 0;
+                if(depth < 3) {
+                    let nProjection = MUtils.ProjectOnNormal(dir, normal);
+                    return this.getRayCollisionAdjustedPos(this.mesh.position.add(nProjection), ++depth);
+                }
+            }
+            return this.mesh.position.clone();
+
+        }
+
+        this.debugRayHelper.show(this.mesh.getScene(), Color3.Green());
+        return pos.clone();
+    }
+
     // TODO: shoot / cmdFire rays
 
     private moveToPosWithRayCollisions(pos : Vector3, depth ? : number) : void
@@ -201,8 +258,9 @@ export class MPlayerAvatar implements Puppet
   
         let udir = dir.normalizeToNew();
         let origin = this.mesh.position; 
+
         // ray way:
-        mag = this.boundsRadius + 2.3;
+        mag = this.boundsRadius + .3;
         let ray = new Ray(origin, udir, mag);
         this.debugRayHelper.ray = ray;
 
@@ -211,7 +269,6 @@ export class MPlayerAvatar implements Puppet
                 return false;
             let tgs = Tags.GetTags(mesh);
             return typeof(tgs) === 'string' && tgs.indexOf(GameEntityTags.Terrain) >= 0;
-            // return tgs === GameEntityTags.Terrain;
         });
         
         if(pickResult && pickResult.hit)
@@ -259,6 +316,12 @@ export class MPlayerAvatar implements Puppet
         this.mesh.position.addInPlace(offset);
     }
 
+    private moveNoCollisions(absPos : Vector3) : void 
+    {
+        MUtils.AssertVecNotNan(absPos);
+        this.mesh.position.copyFrom(absPos);
+    }
+
     private moveWithEnt(ent : MNetworkEntity) : void
     {
         let npe = <MNetworkPlayerEntity>(<unknown> ent);
@@ -274,18 +337,32 @@ export class MPlayerAvatar implements Puppet
     applyNetEntityUpdateIngoreCollisions(ent: MNetworkEntity): void 
     {
         this.moveWithEnt(ent);
-        // let npe = <MNetworkPlayerEntity>(<unknown> ent);
-        // if(!MUtils.VecContainsNan(npe.position)){
-        //     this.mesh.position.copyFrom(npe.position);
-        // }
     }
 
-    public applyNetworkEntityUpdate(ne : MNetworkEntity) : void
+    applyNetworkEntityUpdate(ne : MNetworkEntity) : void
     {
         let npe = <MNetworkPlayerEntity>(<unknown>ne);
         this.moveToPosWithRayCollisions(npe.position.clone());
-        return;
+    }
 
+    //
+    // movement & actions for client controlled players
+    //
+    applyCliTarget(nextCliTarget : CliTarget) : void
+    {
+        this.lastCliTarget = this.cliTarget.clone();
+        this.cliTarget = nextCliTarget.clone();
+    }
+    // todo: get a pos adjusted for collisions
+    // set this as the interp target
+
+    interpolateWithCliTargets() : void 
+    {
+        let now = +new Date();
+        let lerper = MUtils.GetSliderNumber(this.lastCliTarget.timestamp, this.cliTarget.timestamp, now);
+        let l = CliTarget.Lerp(this.lastCliTarget, this.cliTarget, lerper);
+        // this.moveToPosWithRayCollisions(l.position);
+        this.moveNoCollisions(l.position); // test
     }
 
 }

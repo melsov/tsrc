@@ -1,4 +1,4 @@
-import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags } from 'babylonjs';
+import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera } from 'babylonjs';
 import { GridMaterial } from 'babylonjs-materials';
 import * as Gui from 'babylonjs-gui';
 
@@ -50,7 +50,7 @@ export class GameMain
     public scene : Scene; // = new Scene(engine);
 
     // This creates and positions a free camera (non-mesh)
-    public readonly camera : FreeCamera; // = new FreeCamera("camera1", new Vector3(0, 5, -10), scene);
+    public readonly camera : UniversalCamera; // = new FreeCamera("camera1", new Vector3(0, 5, -10), scene);
 
     //public readonly playerRoot : TransformNode;
 
@@ -70,10 +70,14 @@ export class GameMain
             (typeOfTestGame == TypeOfGame.ClientA ? g_render_canvas_client_id_a : g_render_canvas_client_id_b));
         this.engine = new Engine(this.canvas); //TODO: if isServer run headless
         this.scene = new Scene(this.engine);
-        this.camera = new FreeCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene);
+        this.camera = new UniversalCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene); // new FreeCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene);
         
+        //test
+        this.camera.speed = 1.5;
+
         // This targets the camera to scene origin
-        this.camera.setTarget(Vector3.Zero());
+        if(typeOfTestGame === TypeOfGame.Server)
+            this.camera.setTarget(Vector3.Zero());
         
         // This attaches the camera to the canvas
         this.camera.attachControl(this.canvas, true);
@@ -108,6 +112,17 @@ export class GameMain
         // SceneLoader.Append("./models/", "city.babylon", <Scene>(<unknown> this.scene), (_scene) => {
         //     console.log("appended the mesh");
         // });
+
+        // SceneLoader.Append("./models/", "city.babylon", this.scene, (_scene) => {
+        //     console.log("appended the mesh");
+        // });
+
+
+        SceneLoader.ImportMesh( null, './models/', 'city.babylon', this.scene, (meshes, particleSystems, animationGroups) => {
+            meshes.forEach((m) => {
+                Tags.AddTagsTo(m, GameEntityTags.Terrain);
+            });
+        });
 
         this.makeBoxWalls();
         

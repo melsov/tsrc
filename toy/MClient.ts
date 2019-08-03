@@ -7,13 +7,16 @@ import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MSkin, PlaceholderPuppet } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
-import { Color3 } from "babylonjs";
+import { Color3, Vector3 } from "babylonjs";
 import { MPlayerAvatar } from "./bab/MPlayerAvatar";
 import { CheckboxUI } from "./html-gui/CheckboxUI";
 import { MUtils } from "./Util/MUtils";
 import { MTickTimer } from "./Util/MTickTimer";
 import { tfirebase } from "../MPlayer";
 import * as Collections from 'typescript-collections';
+import { ClientControlledPlayerEntity } from "./bab/NetworkEntity/ClientControlledPlayerEntity";
+import { FPSCam } from "./bab/FPSCam";
+import { BHelpers } from "./MBabHelpers";
 
 var fakeCommandsIndex = 0;
 function MakeFakeCommand() : CliCommand
@@ -37,18 +40,21 @@ export function CommandToString(cmd : CliCommand) : string
 
 export function CommandFromString(str : string) : CliCommand
 {
-    return <CliCommand> JSON.parse(str);
+    let cmd = <CliCommand> JSON.parse(str);
+    cmd.forward = BHelpers.Vec3FromJSON(cmd.forward);
+    return cmd;
 }
 
 export class MClient
 {
 
-    public readonly playerEntity : MNetworkPlayerEntity;
+    public readonly playerEntity : ClientControlledPlayerEntity;
     private clientViewState : MWorldState = new MWorldState();
 
     private puppetMaster : MPuppetMaster;
 
     public readonly game : GameMain;
+    public readonly fpsCam : FPSCam;
     private input : MPlayerInput;
     private inputSequenceNumber : number = 0;
     private pendingInputs : Array<CliCommand> = new Array<CliCommand>();
@@ -74,7 +80,7 @@ export class MClient
     {
         this.DebugClientNumber = g_howManyClientsSoFar++;
         this.game = new GameMain(this.DebugClientNumber == 0 ? TypeOfGame.ClientA : TypeOfGame.ClientB);
-        this.playerEntity = new MNetworkPlayerEntity(this.user.UID);
+        this.playerEntity = new ClientControlledPlayerEntity(this.user.UID); // MNetworkPlayerEntity(this.user.UID);
         this.puppetMaster = new MPuppetMaster(this.game.scene);
         this.input = new MPlayerInput(this.DebugClientNumber > 0);
 
@@ -93,6 +99,8 @@ export class MClient
         playerPuppet.customize(skin);
         playerPuppet.addDebugLinesInRenderLoop();
 
+        this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh);
+
         this.game.engine.runRenderLoop(() => {
             this.cliRenderLoop();
         });
@@ -100,17 +108,6 @@ export class MClient
         this.debugHud = new DebugHud(this.DebugClientNumber == 0 ? "cli-debug-a" : "cli-debug-b");
         this.debugHudInfo = new DebugHud(this.DebugClientNumber == 0 ? "cli-debug-a-info" : "cli-debug-b-info");
         this.debugHudInfo.show(this.user.UID);
-
-        //DEBUG toggle pause
-        // window.addEventListener('keydown', (kev : KeyboardEvent) => {
-        //     switch(kev.key){
-        //         case this.input.getKeySet().togglePauseDebug:
-        //             console.log(`pause key: ${this.input.getKeySet().togglePauseDebug}`);
-        //             if(!kev.repeat)
-        //                 this.game.startRenderLoop();
-        //             break;
-        //     }
-        // }); // Sadly broken in triple canvase window
     }
 
     public init() : void
@@ -123,11 +120,13 @@ export class MClient
     private cliRenderLoop() 
     {
         this.sampleInputTimer.tick(this.game.engine.getDeltaTime(), () => {
+            this.processServerUpdates();
             this.processInputs();
         });
 
         this.interpolateOthers();
-        this.processServerUpdates();
+        this.playerEntity.renderTick();
+        this.fpsCam.lerpToTarget();
     }
 
     public teardown() : void 
@@ -139,24 +138,28 @@ export class MClient
     {
         let command = this.input.nextInputAxes(); // MakeFakeCommand();
         command.lastWorldStateAckPiggyBack = this.clientViewState.ackIndex;
-        if(!command.hasAMove) { 
-            this.send(CommandToString(command)); // // still send a cmd for ack index // TODO: compress in this case
-            // this.peerConnection.sendChannel.send(CommandToString(command));
-            return; 
-        }
+        // if(!command.hasAMove) { 
+        //     this.send(CommandToString(command)); // // still send a cmd for ack index // TODO: compress in this case
+        //     return; 
+        // }
+        
         command.inputSequenceNumber = this.inputSequenceNumber++;
 
-        let comstr = CommandToString(command);
+        command.forward = this.fpsCam.forward();
+        this.playerEntity.applyCliCommand(command); // with collisions
 
-        this.send(comstr);
-        // this.peerConnection.sendChannel.send(comstr);
-        
-        this.pendingInputs.push(command);
-
-        if (this.clientSidePrediction.checked)
-        {
-            this.playerEntity.applyCliCommand(command); // with collisions
+        if(command.debugGoWrongPlace){
+            this.playerEntity.teleport(this.playerEntity.position.add(new Vector3(0, 0, 3)));
+            console.log(`go wrong place ${this.playerEntity.position}`);
         }
+        // if (this.clientSidePrediction.checked)
+        // {
+        // }
+        
+        command.debugPosAfterCommand = this.playerEntity.position;
+
+        this.send(CommandToString(command));
+        this.pendingInputs.push(command);
     }
 
     public handleServerMessage(msg : string) : void
@@ -230,14 +233,17 @@ export class MClient
             // purge cli commands older than server update 
             // re-apply cli commands past the server update
             //
-            if(this.serverReconciliation.checked)
+           
+            // put our player in the server authoritative state
+            let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
+            this.playerEntity.apply(playerState);
+
+            // / ******
+            // if(this.serverReconciliation.checked)
             {
-                // put our player in the server authoritative state
-                let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
-                // if(false) // nextState.isDelta)
-                //     this.playerEntity.applyDelta(playerState);
-                // else
-                    this.playerEntity.apply(playerState);
+                // // put our player in the server authoritative state
+                // let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
+                // this.playerEntity.apply(playerState);
 
                 // reapply newer inputs
                 let j = 0;
@@ -256,8 +262,20 @@ export class MClient
                         this.playerEntity.applyCliCommand(input);
                         j++;
                     }
+
+                    // DEBUG:
+                    // We sometimes 'think' we're seeing a jumpy adjustment in player puppet movement
+                    // which we wanted to blame on a mismatch between server authoritative pos and cli
+                    // command aggregated pos. but we can't find it here:
+                    //let dif = this.playerEntity.position.subtract(input.debugPosAfterCommand);
+                    //console.log(`dif pos reached: ${dif.length()}`);
+                    
                 }
+
+                // debug pos after command
             }
+           // */ 
+            
 
         } // END WHILE TRUE
 
@@ -268,7 +286,7 @@ export class MClient
 
     private interpolateOthers()
     {
-        this.clientViewState.interpolate();
+        this.clientViewState.interpolate(this.playerEntity.netId);
         // this.worldState.lookup.forEach((uid : string, ent : MNetworkEntity) => {
 
         //     // don't interpolate our own player avatar

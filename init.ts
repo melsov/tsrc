@@ -2,7 +2,7 @@ import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh } from 'ba
 import { GridMaterial } from 'babylonjs-materials';
 import * as Gui from 'babylonjs-gui';
 
-import * as wrtc from './WebRTCConnection';
+//import * as wrtc from './WebRTCConnection';
 //import {RoomAgent} from './RoomAgent';
 
 import * as firebase from 'firebase/app';

@@ -20,7 +20,7 @@ import { tfirebase, RemotePlayer } from "../MPlayer";
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
 export const ServerSimulateTickMillis : number = 90;
-export const ServerBroadcastTickMillis : number = 120;
+export const ServerBroadcastTickMillis : number = 200;
 const ServerRecalcPingTickMillis : number = 800;
 
 //
@@ -337,7 +337,7 @@ export class MServer
         // render the scene here so that the rewound position registers before raycasting
         this.game.scene.render();
 
-        let pickingInfo = firingPlayer.playerPuppet.commandFire();
+        let pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.forward);
 
         if(pickingInfo) console.log(`got fire ${(pickingInfo.pickedMesh ? pickingInfo.pickedMesh.name : 'null mesh?')}`); // DBUG
 
@@ -470,7 +470,7 @@ export class MServer
         {
             let cliDif = this.currentState.ackIndex - cli.lastProcessedInput;
             // console.log(`server current ack: ${this.currentState.ackIndex}. cli.lastAck: ${cli.lastAckIndex} statebuffer len ${this.stateBuffer.length}`);
-            if(cliDif > 0)
+            // if(cliDif > 0)
             {
 
                 // add a ping gauge entry (just before sending data)

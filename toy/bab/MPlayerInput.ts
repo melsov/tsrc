@@ -1,4 +1,4 @@
-import { Axis } from "babylonjs";
+import { Axis, Vector3 } from "babylonjs";
 
 
 
@@ -11,12 +11,18 @@ export class CliCommand
     // fire : boolean = false;
     horizontal : number = 0;
     vertical : number = 0;
+    forward : Vector3 = Vector3.Forward();
     fire : boolean = false;
-
+    debugGoWrongPlace : boolean = false;
+    
     inputSequenceNumber : number = 0;
-
+    
     lastWorldStateAckPiggyBack : number = 0;
-
+    
+    debugPosAfterCommand : Vector3 = Vector3.Zero();
+    
+    timestamp : number = 0;
+    
     get hasAMove() : boolean { return this.horizontal * this.horizontal > 0 || this.vertical * this.vertical > 0 || this.fire; } 
 }
 
@@ -27,6 +33,8 @@ class InputKeys
     right : boolean = false;
     left : boolean = false;
     fire : boolean = false;
+
+    debugGoWrongPlace : boolean = false;
 
     get hasAMove() : boolean { return this.fwd || this.back || this.right || this.left; }
 
@@ -50,6 +58,7 @@ class KeySet
     right : string = 'd';
     fire : string = 'x';
     togglePauseDebug : string = 'q';
+    debugGoWrongPlace : string = 'e';
 }
 
 function MakeAltKeySet() : KeySet
@@ -121,14 +130,18 @@ export class MPlayerInput
         cc.vertical = (this._commands.back ? -1 : (this._commands.fwd ? 1 : 0)) * dt;
         
         cc.fire = this.fireAvailable && this._commands.fire;
-        if(cc.fire)
+        cc.debugGoWrongPlace = this.fireAvailable && this._commands.debugGoWrongPlace;
+
+        if(cc.fire || cc.debugGoWrongPlace)
         {
             this.fireAvailable = false;
             window.setTimeout(()=> {
                 this.fireAvailable = true;
             }, FIRE_RATE_MILLIS);
         }
+
         
+        cc.timestamp = now;
 
         return cc;
     }
@@ -154,6 +167,10 @@ export class MPlayerInput
             case this.keySet.fire:
                 if(!kev.repeat || !isDownEvent)
                     this._commands.fire = isDownEvent;
+                break;
+            case this.keySet.debugGoWrongPlace:
+                if(!kev.repeat || !isDownEvent)
+                    this._commands.debugGoWrongPlace = isDownEvent;
                 break;
         }
 

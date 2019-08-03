@@ -150,16 +150,15 @@ export class MWorldState
         });
     }
 
-    public interpolate() : void 
+    public interpolate(ignoreUID : string) : void 
     {
         this.lookup.forEach((uid : string, ent : MNetworkEntity) => {
 
             // don't interpolate our own player avatar
-            // if(uid != this.playerEntity.netId)
-            // {
-                // actually do interpolate our own player. (will actually interpolate its shadow)
+            if(uid != ignoreUID)
+            {
                 ent.interpolate(MServer.ServerBroadcastTickMillis);
-            // } 
+            } 
         });
     }
 

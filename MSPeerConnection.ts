@@ -115,9 +115,7 @@ export class MSPeerConnection
                 const readyState = this. receiveChannel.readyState;
                 console.log(`Receive channel state is: ${readyState}`);
                 this.ReceiveChanStateChangedCallback(this.receiveChannel.readyState, this);
-            } else {
-                console.warn("null receive channel?");
-            }
+            } 
         }
 
         const OnRecMsg = (event : MessageEvent) => {
@@ -126,7 +124,6 @@ export class MSPeerConnection
         }
 
         this. localConnection.ondatachannel = (event => {
-            console.log('receive channel callback');
             this. receiveChannel = event.channel;
             this. receiveChannel.onmessage = OnRecMsg; // this. onReceiveMessageCallback;
             this. receiveChannel.onopen = OnRecStateChanged; // this. onReceiveChannelStateChange;
