@@ -1,19 +1,18 @@
-import { Axis, Vector3 } from "babylonjs";
+import { Axis, Vector3, Scene, PickingInfo, PointerEventTypes, Nullable } from "babylonjs";
+import { MToggle } from "../helpers/MToggle";
+import { MLoadOut } from "./MPuppetMaster";
 
 
 
 export class CliCommand
 {
-    // fwd : boolean = false;
-    // back : boolean = false;
-    // right : boolean = false;
-    // left : boolean = false;
-    // fire : boolean = false;
     horizontal : number = 0;
     vertical : number = 0;
     forward : Vector3 = Vector3.Forward();
+    claimY : number = 0;
     fire : boolean = false;
-    debugGoWrongPlace : boolean = false;
+    jump : boolean = false;
+    debugTriggerKey : boolean = false;
     
     inputSequenceNumber : number = 0;
     
@@ -22,6 +21,10 @@ export class CliCommand
     debugPosAfterCommand : Vector3 = Vector3.Zero();
     
     timestamp : number = 0;
+
+    confirmHashes : Array<number> = new Array<number>();
+
+    loadOutRequest : Nullable<MLoadOut> = null;
     
     get hasAMove() : boolean { return this.horizontal * this.horizontal > 0 || this.vertical * this.vertical > 0 || this.fire; } 
 }
@@ -33,6 +36,7 @@ class InputKeys
     right : boolean = false;
     left : boolean = false;
     fire : boolean = false;
+    jump : boolean = false;
 
     debugGoWrongPlace : boolean = false;
 
@@ -40,7 +44,7 @@ class InputKeys
 
     reset()
     {
-        this.fwd = this.back = this.right = this.left = this.fire = false;
+        this.fwd = this.back = this.right = this.left = this.fire = this.jump = false;
     }
 
     get debugLeftRightOrNothing() : string { return this.left ? "left " : (this.right ? "right" : ""); }
@@ -57,6 +61,7 @@ class KeySet
     back : string = 's';
     right : string = 'd';
     fire : string = 'x';
+
     togglePauseDebug : string = 'q';
     debugGoWrongPlace : string = 'e';
 }
@@ -76,7 +81,7 @@ function MakeAltKeySet() : KeySet
 export class MPlayerInput
 {
     
-    private _commands : InputKeys = new InputKeys();
+    private _inputKeys : InputKeys = new InputKeys();
     
     // get commands() : CliCommand { return this._commands; }
     private lastGetAxesTime : (number | undefined) = undefined;
@@ -86,6 +91,9 @@ export class MPlayerInput
     public getKeySet() : KeySet { return this.keySet; }
 
     private fireAvailable : boolean = true;
+    private isPointerLocked : boolean = false;
+
+    public readonly rightMouseToggle : MToggle = new MToggle(false);
 
     constructor(useAltKeySet : boolean)
     {
@@ -102,6 +110,65 @@ export class MPlayerInput
         inputFocusElem.addEventListener('keyup', (kev : KeyboardEvent) => {
             this.handleKeyboardEvent(kev, false);
         });
+    }
+
+    useScene(canvas : HTMLCanvasElement, scene : Scene) : void 
+    {
+        this.setupPointer(canvas, scene);
+    }
+
+    public exitPointerLock(canvas : HTMLCanvasElement, scene : Scene) : void
+    {
+        scene.onPointerDown = () => {};
+        scene.onPointerUp = () => {};
+
+        if(document.exitPointerLock)
+            document.exitPointerLock();
+    }
+
+    public enterPointerLock(canvas : HTMLCanvasElement, scene : Scene) : void
+    {
+        scene.onPointerDown = (ev : PointerEvent, pickInfo : PickingInfo, type : PointerEventTypes) => {
+            if(!this.isPointerLocked) 
+            {
+                canvas.requestPointerLock = canvas.requestPointerLock || canvas.msRequestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock;
+                if(canvas.requestPointerLock) {
+                    canvas.requestPointerLock();
+                }
+            }
+
+            this.handlePointer(true, ev, pickInfo, type);
+        };
+
+        scene.onPointerUp = (ev : PointerEvent, pickInfo :  Nullable<PickingInfo>, type : PointerEventTypes) => {
+            this.handlePointer(false, ev, pickInfo, type);
+        }
+    }
+    
+    private setupPointer(canvas : HTMLCanvasElement, scene : Scene) : void 
+    {
+        
+       // this.enterPointerLock(canvas, scene);
+
+        let pointerLockChanged = () => {
+            let doc : any = document;
+            let controlEnabled = doc.mozPointerLockElement || doc.webkitPointerLockElement || doc.msPointerLockElement || document.pointerLockElement || null;
+		
+            // If the user is already locked
+            if (!controlEnabled) {
+                //camera.detachControl(canvas);
+                this.isPointerLocked = false;
+            } else {
+                //camera.attachControl(canvas);
+                this.isPointerLocked = true;
+            }
+        }
+
+        // Attach events to the document
+        document.addEventListener("pointerlockchange", pointerLockChanged, false);
+        document.addEventListener("mspointerlockchange", pointerLockChanged, false);
+        document.addEventListener("mozpointerlockchange", pointerLockChanged, false);
+        document.addEventListener("webkitpointerlockchange", pointerLockChanged, false);
     }
 
     // public next Axes Command ()
@@ -123,16 +190,16 @@ export class MPlayerInput
         // we sometimes (seem to) miss key events
         // when canvases loses focus
         if(now - this.lastKeyboardEventTime > KB_EVENT_TIMEOUT_MILLIS) {
-            this._commands.reset();
+            this._inputKeys.reset();
         }
 
-        cc.horizontal = (this._commands.left ? -1 : (this._commands.right ? 1 : 0)) * dt;
-        cc.vertical = (this._commands.back ? -1 : (this._commands.fwd ? 1 : 0)) * dt;
+        cc.horizontal = (this._inputKeys.left ? -1 : (this._inputKeys.right ? 1 : 0)) * dt;
+        cc.vertical = (this._inputKeys.back ? -1 : (this._inputKeys.fwd ? 1 : 0)) * dt;
         
-        cc.fire = this.fireAvailable && this._commands.fire;
-        cc.debugGoWrongPlace = this.fireAvailable && this._commands.debugGoWrongPlace;
+        cc.fire = this.fireAvailable && this._inputKeys.fire;
+        cc.debugTriggerKey = this.fireAvailable && this._inputKeys.debugGoWrongPlace;
 
-        if(cc.fire || cc.debugGoWrongPlace)
+        if(cc.fire || cc.debugTriggerKey)
         {
             this.fireAvailable = false;
             window.setTimeout(()=> {
@@ -140,38 +207,69 @@ export class MPlayerInput
             }, FIRE_RATE_MILLIS);
         }
 
-        
-        cc.timestamp = now;
+        cc.jump = this._inputKeys.jump;
 
+        cc.timestamp = now;
         return cc;
     }
 
+    private handlePointer(isDown : boolean, ev : PointerEvent, pinfo : Nullable<PickingInfo>, types : PointerEventTypes)
+    {
+
+        console.log(`h pointer: ${ev.button}`);
+        
+        switch(ev.button)
+        {
+            case 0: // lmb
+                if(types === PointerEventTypes.POINTERDOWN)
+                {
+                    this._inputKeys.fire = true;
+                }
+                break;
+            // case 1: // mmb (scroll wheel as a button)
+            case 2: // rmb
+                if(types === PointerEventTypes.POINTERDOWN)
+                    this.rightMouseToggle.value = true;
+                else if(types === PointerEventTypes.POINTERUP)
+                    this.rightMouseToggle.value = false;
+                break;
+            default:
+                break;
+        }
+       
+    }
 
     private handleKeyboardEvent(kev : KeyboardEvent, isDownEvent : boolean)
     {
         this.lastKeyboardEventTime = +new Date();
-        switch(kev.key)
+        if(kev.keyCode === 32) 
         {
-            case this.keySet.fwd:
-                this._commands.fwd = isDownEvent;
-                break;
-            case this.keySet.left:
-                this._commands.left = isDownEvent;
-                break;
-            case this.keySet.back:
-                this._commands.back = isDownEvent;
-                break;
-            case this.keySet.right:
-                this._commands.right = isDownEvent;
-                break;
-            case this.keySet.fire:
-                if(!kev.repeat || !isDownEvent)
-                    this._commands.fire = isDownEvent;
-                break;
-            case this.keySet.debugGoWrongPlace:
-                if(!kev.repeat || !isDownEvent)
-                    this._commands.debugGoWrongPlace = isDownEvent;
-                break;
+            this._inputKeys.jump = isDownEvent;
+        }
+        else {
+            switch(kev.key)
+            {
+                case this.keySet.fwd:
+                    this._inputKeys.fwd = isDownEvent;
+                    break;
+                case this.keySet.left:
+                    this._inputKeys.left = isDownEvent;
+                    break;
+                case this.keySet.back:
+                    this._inputKeys.back = isDownEvent;
+                    break;
+                case this.keySet.right:
+                    this._inputKeys.right = isDownEvent;
+                    break;
+                case this.keySet.fire:
+                    if(!kev.repeat || !isDownEvent)
+                        this._inputKeys.fire = isDownEvent;
+                    break;
+                case this.keySet.debugGoWrongPlace:
+                    if(!kev.repeat || !isDownEvent)
+                        this._inputKeys.debugGoWrongPlace = isDownEvent;
+                    break;
+            }
         }
 
     }

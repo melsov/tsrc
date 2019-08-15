@@ -5,17 +5,19 @@ import { MClient } from "./MClient";
 import * as MCli from "./MClient";
 // import { Fakebase } from "./Fakebase";
 import { MUtils } from "./Util/MUtils";
-import { Scene, Vector3, Tags, Nullable, Color3, Mesh, AbstractMesh } from "babylonjs";
+import { Scene, Vector3, Tags, Nullable, Color3, Mesh, AbstractMesh, Ray } from "babylonjs";
 import { GameMain, TypeOfGame, GameEntityTags } from "./GameMain";
 import { MWorldState } from "./MWorldState";
-import { MPuppetMaster, MSkin } from "./bab/MPuppetMaster";
+import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
-import { MPlayerAvatar } from "./bab/MPlayerAvatar";
+import { MPlayerAvatar, MAX_HEALTH } from "./bab/MPlayerAvatar";
 import { MProjectileHitInfo } from "./MProjectileHitInfo";
 import { MTickTimer } from "./Util/MTickTimer";
 import { MPingGauge } from "./ping/MPingGauge";
 import { tfirebase, RemotePlayer } from "../MPlayer";
+import {  MAnnounce } from "./bab/MAnnouncement";
+import { MConfirmableMessageBook, MAnnouncement, MAbstractConfirmableMessage, MPlayerReentry, MExitDeath } from "./helpers/MConfirmableMessage";
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
@@ -32,6 +34,9 @@ class CliEntity
     public readonly pingGauge : MPingGauge = new MPingGauge();
     public roundTripMillis : number = LAG_MS_FAKE * 2;
     public didDisconnect : boolean = false;
+    public confirmableMessageBook : MConfirmableMessageBook = new MConfirmableMessageBook();
+
+    public loadOut : Nullable<MLoadOut> = null;
 
     constructor(
         public remotePlayer : RemotePlayer
@@ -94,14 +99,23 @@ export class MServer
     private broadcastTimer : MTickTimer = new MTickTimer(ServerBroadcastTickMillis);
     private recalcPingTimer : MTickTimer = new MTickTimer(ServerRecalcPingTickMillis);
 
+    private confirmableBroadcasts : Array<MAbstractConfirmableMessage> = new Array<MAbstractConfirmableMessage>();
+
     constructor()
     {
         this.game.init();
         this.puppetMaster = new MPuppetMaster(this.game.scene);
     }
 
-    // todo: connect with using a RemotePlayer instead
-    public connect(remotePlayer : RemotePlayer) : void // user : tfirebase.User, pc : LaggyPeerConnection) : void
+    // TODO: mechanism for allowing player to get a load out and agree to enter the game
+    // let them connect to the room, hope that they don't take too long to choose their load out.
+    // if they take too long, boot them from the room (life status not connected)
+    // so inside of connect: send them DeadChoosingLoadOut
+    // they can send a command that includes load out particulars (a load out object)
+    // add this as a life cycle on their ent in the current state
+    // mark this update as 'needs confirm' (a new bool for world updates!)
+    
+    public connect(remotePlayer : RemotePlayer) : void
     {
         let user = remotePlayer.user;
         this.clients.setValue(user.UID, new CliEntity(remotePlayer));
@@ -110,7 +124,10 @@ export class MServer
         let playerPuppet : MPlayerAvatar =  <MPlayerAvatar> this.puppetMaster.getPuppet(netPlayer);
         netPlayer.setupPuppet(playerPuppet);
         playerPuppet.addDebugLinesInRenderLoop();
-        let skin = MSkin.OrderUpASkin(this.clients.keys().length - 1);
+
+        MUtils.Assert(playerPuppet.mesh != undefined, 'hard to believe');
+        
+        let skin = MLoadOut.DebugCreateLoadout(this.clients.keys().length - 1);
         playerPuppet.customize(skin);
 
         netPlayer.setupShadow(this.game.scene, this.clients.keys().length - 1);
@@ -118,8 +135,9 @@ export class MServer
         this.currentState.lookup.setValue(user.UID, netPlayer);
         this.currentState.ackIndex = 1; // start with 1 to facilitate checking clients who have never ack'd
 
-        let fakeSpawnPos = this.clients.keys().length == 1 ? new Vector3(-3, 0, 0) : new Vector3(3, 0, 0);
-        netPlayer.teleport(fakeSpawnPos);
+        let bardoSpawnPos = this.clients.keys().length == 1 ? new Vector3(-3, 12, 0) : new Vector3(3, 12, 0);
+        console.warn(`bardo spawn to: ${bardoSpawnPos}`);
+        netPlayer.teleport(bardoSpawnPos);
 
         remotePlayer.peer.recExtraCallback = (uid : string, e : MessageEvent) => {
             this.handleClientMessage(uid, e.data);
@@ -151,7 +169,6 @@ export class MServer
     private renderLoopTick() : void 
     {
         this.simulateTimer.tick(this.game.engine.getDeltaTime(), ()=> {
-            // if we process inside render loop, will collisions happen? 
             // this.EnqueueIncomingCliCommands();
             this.processCliCommands();
             // this.debugPutShadowsInRewindState();
@@ -166,6 +183,11 @@ export class MServer
 
             this.currentState.clearTransientStates(); // purge 'hits on me' for example
             this.handleDeletes();
+
+            // fake announcement
+            // this.confirmableBroadcasts.shift();
+            // this.confirmableBroadcasts.push(new MAnnouncement(`fake announcement ${this.currentState.ackIndex}`));
+            
         });
 
         // ping recalc
@@ -175,38 +197,16 @@ export class MServer
                 cli.roundTripMillis = cli.pingGauge.average;
             });
         });
-        
-        this.interpolateForShadows();
-
+       
     }
-
 
     public handleClientMessage(uid : string, msg : string) : void
     {
         this.cmdQueue.enqueue(new QueuedCliCommand(MCli.CommandFromString(msg), uid));
     }
 
-    // enqueue commands in an order that's (hopefully) close to
-    // the order in which they were sent
-    // private EnqueueIncomingCliCommands() : void
-    // {
-    //     while(true) 
-    //     {
-    //         let gotACommand = false;
-    //         this.clients.forEach((user : string, cli : CliEntity) => {
-    //             let msg = cli.peerConnection.receiveChannel.receive();
-    //             if(msg != null)
-    //             {
-    //                 gotACommand = true;
-    //                 this.cmdQueue.enqueue(new QueuedCliCommand(MCli.CommandFromString(msg), user));
-    //             }
-    //         });
-    //         if(!gotACommand)
-    //         {
-    //             break;
-    //         }
-    //     }
-    // }    
+    //TODO: players are either not starting in a spot that synced with server pos
+    // or evolving out of synced pos. 
     
     // process pending cli commands 
     // to update the current state
@@ -221,8 +221,20 @@ export class MServer
             let playerEnt : (MNetworkPlayerEntity | undefined) = <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(qcmd.UID);
             if(playerEnt != undefined)
             {
-                playerEnt.applyCliCommand(qcmd.cmd);
+                playerEnt.applyCliCommandServerSide(qcmd.cmd);
                 this.handleFire(playerEnt, qcmd.cmd);
+
+                // fake decre health
+                if(qcmd.cmd.debugTriggerKey) {
+                    playerEnt.health--;
+                    if(playerEnt.health === 0) {
+                        this.confirmableBroadcasts.push(new MExitDeath(
+                            playerEnt.netId,
+                            playerEnt.netId,
+                            new Ray(new Vector3(), Vector3.One(), 1),
+                            'test murdeded'));
+                    }
+                }
             }
 
             // last processed input
@@ -234,6 +246,37 @@ export class MServer
                 // ping gauge
                 if(qcmd.cmd.lastWorldStateAckPiggyBack > 0)
                     cli.pingGauge.completeAck(qcmd.cmd.lastWorldStateAckPiggyBack);
+
+                // confirm messages with return hashes
+                cli.confirmableMessageBook.confirmArray(qcmd.cmd.confirmHashes);
+
+                // player loadout request
+                if(qcmd.cmd.loadOutRequest 
+                    && (cli.loadOut === null || MLoadOut.GetHash(cli.loadOut) !== MLoadOut.GetHash(qcmd.cmd.loadOutRequest) ||
+                    (playerEnt && playerEnt.health <= 0))
+                ) 
+                {
+                    let spawnPos = new Vector3(-3, 8, 4);
+                    console.log(`got load out ${JSON.stringify(qcmd.cmd.loadOutRequest)}`);
+
+                    // broadcast a player entry
+                    this.confirmableBroadcasts.push(new MPlayerReentry(
+                        `${qcmd.UID} has entered the game`,
+                        qcmd.UID,
+                        qcmd.cmd.loadOutRequest,
+                        spawnPos
+                    ));
+
+                    // also announce
+                    this.confirmableBroadcasts.push(new MAnnouncement(`Welcome ${qcmd.UID}!`));
+
+                    cli.loadOut = qcmd.cmd.loadOutRequest;
+                    if(playerEnt !== undefined) // which it really shouldn't
+                    {
+                        playerEnt.health = MAX_HEALTH;
+                        playerEnt.teleport(spawnPos);
+                    }
+                }
             }
         }
         this.DebugClis();
@@ -285,7 +328,7 @@ export class MServer
         other.teleport(firer.position.add(new Vector3(2, 0, 0)));
         return origPos;
     }
-
+ 
 
     private playerFromShadow(shad : AbstractMesh) : Nullable<MNetworkPlayerEntity>
     {
@@ -340,6 +383,7 @@ export class MServer
         let pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.forward);
 
         if(pickingInfo) console.log(`got fire ${(pickingInfo.pickedMesh ? pickingInfo.pickedMesh.name : 'null mesh?')}`); // DBUG
+        else console.log(`fire missed`);
 
         if(pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray)
         {
@@ -351,13 +395,27 @@ export class MServer
                 if(hitPlayer != undefined && hitPlayer != null) {
                     let netIdLookup = hitPlayer.netId; // pickingInfo.pickedMesh.name; // for now
                     let prInfo = new MProjectileHitInfo(netIdLookup, firingPlayer.playerPuppet.currentProjectileType, pickingInfo.ray, 3);
+                    let beforeHealth = hitPlayer.health;
                     hitPlayer.getHitByProjectile(prInfo);
+
+                    // became dead?
+                    if(beforeHealth > 0 && hitPlayer.health <= 0) {
+                        this.confirmableBroadcasts.push(new MExitDeath(
+                            hitPlayer.netId,
+                            firingPlayer.netId,
+                            pickingInfo.ray,
+                            'wasted'
+                        ));
+                    }
 
                     // //DEBUG place shadow at hit pos
                     // if(hitPlayer.shadow)
                     //     hitPlayer.shadow.position = hitPlayer.position;
                 }
             }
+        }
+        else if(pickingInfo) {
+            console.log(`hit? ${pickingInfo.hit}, mesh? ${pickingInfo.pickedMesh !== null}, ray? ${pickingInfo.ray !== null} `);
         }
 
         this.revertStateToPresent(this.currentState);
@@ -484,7 +542,14 @@ export class MServer
                     cli.lastProcessedInput === 0)  // never ack'd?
                 {
                     let state = this.stateBuffer[this.stateBuffer.length - 1];
-                    cli.remotePlayer.peer.send(PackWorldState(new ServerUpdate(state, cli.lastProcessedInput)));
+                    let su = new ServerUpdate(state, cli.lastProcessedInput);  
+
+                    //TODO: convert Server Update to 'any'
+                    // so that we can decline to add properties that we don't need
+
+                    cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
+                    su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages(); // this.confirmableMessages;
+                    cli.remotePlayer.peer.send(PackWorldState(su));
                 }
                 else 
                 {
@@ -506,6 +571,8 @@ export class MServer
                 }
             }
         });
+
+        this.confirmableBroadcasts.splice(0, this.confirmableBroadcasts.length);  // clear broadcasts
     }
 
     private handleDeletes() : void 
@@ -525,13 +592,16 @@ export class MServer
 
 export class ServerUpdate
 {
+
+    public confirmableMessages : Nullable<Array<MAbstractConfirmableMessage>> = null;
+
     constructor(
         public worldState : MWorldState,
         public lastInputNumber : number
     ){}
 }
 
-function PackWorldState(serverUpdate : ServerUpdate) : string
+function PackWorldState(serverUpdate : any) : string
 {
     let str = JSON.stringify(serverUpdate); // do we need a packer func?
     return str;
@@ -552,7 +622,11 @@ export function UnpackWorldState(serverUpdateString : string) : ServerUpdate
         ws.lookup.setValue(mnetKV['key'], MNetworkEntity.deserialize(mnetKV['value']));
     }
     
-    return new ServerUpdate(ws, jObj['lastInputNumber']); //ws;
+    let su = new ServerUpdate(ws, jObj['lastInputNumber']); //ws;
+    su.confirmableMessages = MAnnounce.FromServerUpdate(jObj);
+    
+
+    return su;
 }
 
 // museum

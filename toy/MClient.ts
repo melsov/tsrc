@@ -4,7 +4,7 @@ import * as MServer from "./MServer";
 import { MNetworkPlayerEntity, MNetworkEntity } from "./bab/NetworkEntity/MNetworkEntity";
 import { GameMain, TypeOfGame } from "./GameMain";
 import { MWorldState } from "./MWorldState";
-import { MPuppetMaster, MSkin, PlaceholderPuppet } from "./bab/MPuppetMaster";
+import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
 import { Color3, Vector3 } from "babylonjs";
@@ -17,6 +17,12 @@ import * as Collections from 'typescript-collections';
 import { ClientControlledPlayerEntity } from "./bab/NetworkEntity/ClientControlledPlayerEntity";
 import { FPSCam } from "./bab/FPSCam";
 import { BHelpers } from "./MBabHelpers";
+import { MMessageBoard } from "./bab/MAnnouncement";
+import { ConfirmableMessageOrganizer, ConfirmableType, MAnnouncement, MPlayerReentry, MExitDeath } from "./helpers/MConfirmableMessage";
+import { LifeStage, StageType } from "./MLifeCycle";
+import { Mel } from "./html-gui/LobbyUI";
+
+
 
 var fakeCommandsIndex = 0;
 function MakeFakeCommand() : CliCommand
@@ -66,11 +72,27 @@ export class MClient
     private serverReconciliation : CheckboxUI = new CheckboxUI('reconciliation', true);
     private clientSidePrediction : CheckboxUI = new CheckboxUI('prediction', true);
 
+    private lobbyUI : Mel.LobbyUI = new Mel.LobbyUI();
+
     private DebugClientNumber : number = 0;
 
     private sampleInputTimer : MTickTimer = new MTickTimer(MServer.ServerSimulateTickMillis);
 
     private fromServer : Collections.Queue<string> = new Collections.Queue<string>();
+    private reliableFromServer : Collections.Queue<string> = new Collections.Queue<string>();
+
+    private gotFirstServerMessage : boolean = false;
+
+    private messageBoard : MMessageBoard = new MMessageBoard();
+
+    private confirmMessageOrganizer : ConfirmableMessageOrganizer = new ConfirmableMessageOrganizer();
+
+    private stageOfLifeType : StageType = StageType.DeadConfigureLoadout; // TODO: should be 'not connected'
+
+    private loop : () => void = () => {};
+
+    private requestLoadOutFunc : () => void = () => {};
+
 
     constructor(
         //public readonly peerConnection : LaggyPeerConnection,
@@ -83,6 +105,7 @@ export class MClient
         this.playerEntity = new ClientControlledPlayerEntity(this.user.UID); // MNetworkPlayerEntity(this.user.UID);
         this.puppetMaster = new MPuppetMaster(this.game.scene);
         this.input = new MPlayerInput(this.DebugClientNumber > 0);
+        this.input.useScene(this.game.canvas, this.game.scene);
 
         this.playerEntity.setupShadow(this.game.scene, this.DebugClientNumber);
         this.clientViewState.getPuppet = (ent : MNetworkEntity) => {
@@ -91,9 +114,10 @@ export class MClient
 
         this.clientViewState.setEntity(this.user.UID, this.playerEntity);
 
+        MUtils.Assert(this.playerEntity.playerPuppet.mesh != undefined, "surprising");
 
         //customize puppet
-        let skin = MSkin.OrderUpASkin(this.DebugClientNumber);
+        let skin = MLoadOut.DebugCreateLoadout(this.DebugClientNumber);
         
         let playerPuppet = <MPlayerAvatar> this.puppetMaster.getPuppet(this.playerEntity);
         playerPuppet.customize(skin);
@@ -101,13 +125,23 @@ export class MClient
 
         this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh);
 
+        this.input.rightMouseToggle.callback = (isOn : boolean) => {
+            this.fpsCam.toggleFOV(isOn);
+        }
+
+        this.loop = this.chooseLoadOutRenderLoop;
+
         this.game.engine.runRenderLoop(() => {
-            this.cliRenderLoop();
+            this.loop();
         });
 
         this.debugHud = new DebugHud(this.DebugClientNumber == 0 ? "cli-debug-a" : "cli-debug-b");
         this.debugHudInfo = new DebugHud(this.DebugClientNumber == 0 ? "cli-debug-a-info" : "cli-debug-b-info");
         this.debugHudInfo.show(this.user.UID);
+
+        this.lobbyUI.handleEnterGamePressed = (ev: MouseEvent) => {
+            this.handleEnterGamePressed();
+        }
     }
 
     public init() : void
@@ -116,22 +150,93 @@ export class MClient
         this.input.init(window);
     }
 
+    private handleLifeTransition(next : StageType) : void 
+    {
+        if (this.stageOfLifeType === next) 
+        {
+            console.log(`same life stage type: ${next}`);
+            return;
+        }
+
+        // TODO: trigger send lo from an enter game button
+        // TODO: show hide LOut UI
+
+        if(this.stageOfLifeType === StageType.DeadConfigureLoadout && next === StageType.Alive) {
+            console.warn(`loop will be in game`);
+            this.requestLoadOutFunc = () => {};
+            this.loop = this.inGameRenderLoop;
+        }
+        else if(this.stageOfLifeType === StageType.Alive && next === StageType.DeadConfigureLoadout) {
+            console.warn(`loop will be choose lo`);
+            // TODO: be dead for a bit
+            this.lobbyUI.showHide(true);
+            this.input.exitPointerLock(this.game.canvas, this.game.scene);
+            this.loop = this.chooseLoadOutRenderLoop;
+        }
+        this.stageOfLifeType = next;
+    }
+
+    private handleEnterGamePressed() : void 
+    {
+        if(this.stageOfLifeType === StageType.DeadConfigureLoadout) {
+            this.lobbyUI.showHide(false);
+            this.input.enterPointerLock(this.game.canvas, this.game.scene);
+            this.requestLoadOutFunc = () => { this.sendLoadOutRequest(); }
+        }
+    }
+
+    private chooseLoadOutRenderLoop() : void
+    {
+        this.sampleInputTimer.tick(this.game.engine.getDeltaTime(), () => {
+            //this.sendLoadOutRequest();
+            this.requestLoadOutFunc();
+            this.processServerUpdates();
+        });
+    }
+
+    private debugWaitThenSendLOTimer = new MTickTimer(5);
+
+    private sendLoadOutRequest() : void 
+    {
+        //this.debugWaitThenSendLOTimer.tick(this.game.engine.getDeltaTime(), () => { 
+
+        let lo = MLoadOut.DebugCreateLoadout(this.DebugClientNumber);
+        if(!lo) { return; }
+
+        let cmd = new CliCommand();
+        cmd.loadOutRequest = lo;
+        cmd.confirmHashes = this.confirmMessageOrganizer.consumeHashes();
+
+        let strcmd = CommandToString(cmd);
+        console.log(`send lo req cmd: ${strcmd}`);
+
+        this.send(strcmd);
+        
+        //});
+    }
+
     
-    private cliRenderLoop() 
+    private inGameRenderLoop() : void
     {
         this.sampleInputTimer.tick(this.game.engine.getDeltaTime(), () => {
             this.processServerUpdates();
-            this.processInputs();
+            if(this.gotFirstServerMessage)
+                this.processInputs();
         });
 
-        this.interpolateOthers();
-        this.playerEntity.renderTick();
-        this.fpsCam.lerpToTarget();
+        // Consider: do we need gotFirstServerMessage at this point?
+        if(this.gotFirstServerMessage)
+        {
+            this.interpolateOthers();
+            this.playerEntity.renderTick(this.game.engine.getDeltaTime());
+            this.fpsCam.renderLoopTick();
+        }
     }
 
     public teardown() : void 
     {
-        //clearInterval(this.serverTickProcessHandle);
+        this.gotFirstServerMessage = false;
+        // clearInterval(this.serverTickProcessHandle);
     }
     
     private processInputs() : void
@@ -148,10 +253,15 @@ export class MClient
         command.forward = this.fpsCam.forward();
         this.playerEntity.applyCliCommand(command); // with collisions
 
-        if(command.debugGoWrongPlace){
-            this.playerEntity.teleport(this.playerEntity.position.add(new Vector3(0, 0, 3)));
-            console.log(`go wrong place ${this.playerEntity.position}`);
-        }
+        command.claimY = this.playerEntity.position.y;
+
+        this.confirmMessageOrganizer.debugConsumeCheckClear(true);
+        command.confirmHashes = this.confirmMessageOrganizer.consumeHashes();
+
+        // if(command.debugGoWrongPlace){
+        //     this.playerEntity.teleport(this.playerEntity.position.add(new Vector3(0, 0, 3)));
+        //     console.log(`go wrong place ${this.playerEntity.position}`);
+        // }
         // if (this.clientSidePrediction.checked)
         // {
         // }
@@ -172,11 +282,15 @@ export class MClient
         while(true)
         {
 
+            // TODO: if the update's index is < the last received index
+            // throw out this update (msg can arrive out of order)
+            
             let msg = this.fromServer.dequeue(); // this.peerConnection.receiveChannel.receive();
             if(msg === null || msg === undefined)
             {
                 break;
             }
+
 
             // BUT... need to determine a structure / pattern
             // for client side entity states in a buffer (for interpolation).
@@ -193,9 +307,22 @@ export class MClient
             // the latter ? would seem to involve fewer dictionary lookups?
 
             let serverUpdate : MServer.ServerUpdate = MServer.UnpackWorldState(msg);
+
+            //announcements
+            if(serverUpdate.confirmableMessages)
+            {
+                this.confirmMessageOrganizer.addArray(serverUpdate.confirmableMessages);
+
+                this.messageBoard.push(<MAnnouncement[]> this.confirmMessageOrganizer.consume(ConfirmableType.Announcement)); 
+
+                this.handlePlayerReentry(<MPlayerReentry[]> this.confirmMessageOrganizer.consume(ConfirmableType.PlayerReentry));
+
+                this.handleExitDeath(<MExitDeath[]> this.confirmMessageOrganizer.consume(ConfirmableType.ExitDeath));
+            }
+
             let nextState = serverUpdate.worldState;
            
-
+  
             // TODO: figure out how to handle deltas
             // along with interpolation
             // perhaps keep track of separate states:
@@ -238,8 +365,14 @@ export class MClient
             let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
             this.playerEntity.apply(playerState);
 
+            if(!this.gotFirstServerMessage) {
+                this.playerEntity.teleport(playerState.position);
+                this.gotFirstServerMessage = true;
+            }
+
+
             // / ******
-            // if(this.serverReconciliation.checked)
+            if(this.serverReconciliation.checked)
             {
                 // // put our player in the server authoritative state
                 // let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
@@ -248,7 +381,8 @@ export class MClient
                 // reapply newer inputs
                 let j = 0;
 
-                while(this.clientSidePrediction.checked && j < this.pendingInputs.length)
+                if(this.clientSidePrediction.checked)
+                while(j < this.pendingInputs.length)
                 {
                     let input = this.pendingInputs[j];
                     if(input.inputSequenceNumber <= serverUpdate.lastInputNumber)
@@ -296,5 +430,49 @@ export class MClient
         //         ent.interpolate(MServer.ServerUpdateTickMillis);
         //     // } 
         // });
+    }
+
+    private handlePlayerReentry(prs :  MPlayerReentry[]) : void 
+    {
+        for(let i=0; i<prs.length; ++i)
+        {
+            let preentry = prs[i];
+            let pl = this.clientViewState.lookup.getValue(preentry.netId);
+            if(pl === undefined) { continue; }
+
+            let plent = pl.getPlayerEntity();
+            if(plent === null) { continue; }
+
+            plent.teleport(preentry.spawnPos);
+            plent.playerPuppet.customize(preentry.loadOut);
+
+            console.warn(`someone got a player reentry`);
+
+            if(preentry.netId === this.user.UID) {
+                console.log(`new life transition for me: Alive`);
+                this.handleLifeTransition(StageType.Alive);
+            }
+        }
+    }
+
+    private handleExitDeath(eds : MExitDeath[]) : void 
+    {
+        for(let i=0; i<eds.length; ++i)
+        {
+            let ed = eds[i];
+            let pl = this.clientViewState.lookup.getValue(ed.deadNetId);
+            if(pl == undefined) { continue; }
+
+            let plent = pl.getPlayerEntity();
+            if(plent == undefined) { continue; }
+
+            if(ed.deadNetId === this.user.UID) {
+                // we died
+                this.handleLifeTransition(StageType.DeadConfigureLoadout);
+                // TODO: mid screen bold announcement
+            }
+            this.messageBoard.add( new MAnnouncement(`${ed.killerName} ${ed.colorCommentary} ${ed.deadNetId}`) );
+
+        }
     }
 }

@@ -1,42 +1,50 @@
 import { MNetworkPlayerEntity, CliTarget } from "./MNetworkEntity";
 import { CliCommand } from "../MPlayerInput";
 import { ServerSimulateTickMillis } from "../../MServer";
+import { MUtils } from "../../Util/MUtils";
+import { MStatusHUD } from "../../html-gui/MStatusHUD";
+import { Vector3 } from "babylonjs";
 
 export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
 {
+
+    protected statusHUD : MStatusHUD;
+
+    constructor(
+        public _netId : string, 
+        pos ? : Vector3) 
+    {
+        super(_netId, pos);
+
+        this.statusHUD = new MStatusHUD(this);
+    }
 
     //
     // applying movement by updating cli targets and send data's position
     //
     public applyCliCommand(cliCommand : CliCommand) : void
     {
-        let nextPos = this.sendData.position.add(this.moveDir(cliCommand).scale(this.moveSpeed)); // this.sendData.position.clone();
-
-        nextPos = this.playerPuppet.getRayCollisionAdjustedPos(nextPos.clone());
-
-        let targetTime = cliCommand.timestamp + ServerSimulateTickMillis;
-        let now = +new Date();
-    
-        this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
-        this.playerPuppet.cliTarget.position.copyFrom(nextPos);
-        this.playerPuppet.cliTarget.timestamp = targetTime;
-        this.sendData.position.copyFrom(nextPos);
+        this.playerPuppet.pushCliTargetWithCommand(cliCommand);
     }
 
     public apply(ent : MNetworkPlayerEntity) : void
     {
         this.shouldDelete = ent.shouldDelete;
 
-        // pinch cli targets
-        this.playerPuppet.cliTarget.position.copyFrom(ent.position);
-        this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
+        this.health = ent.health;
+        this.statusHUD.update();
 
-        this.sendData.position.copyFrom(ent.position);
+
+        // pinch cli targets
+        MUtils.CopyXZInPlace(ent.position, this.playerPuppet.cliTarget.interpData.position); // cli player controls their own y (this is insane?)
+        // this.playerPuppet.cliTarget.interpData.position.copyFrom(ent.position);
+
+        this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
     }
 
-    public renderTick()
+    public renderTick(dt : number)
     {
-        this.playerPuppet.interpolateWithCliTargets();
+        this.playerPuppet.renderLoopTick(dt); 
     }
 
 }

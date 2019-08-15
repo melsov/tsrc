@@ -1,15 +1,31 @@
 import { TransformNode, Scene, Engine, Mesh, Color3, Vector3, Ray, RayHelper, MeshBuilder, PickingInfo, Nullable, Tags, AbstractMesh, Camera, Vector4 } from "babylonjs";
 import { GridMaterial } from "babylonjs-materials";
-import { MNetworkPlayerEntity, MNetworkEntity, CliTarget } from "./NetworkEntity/MNetworkEntity";
-import { Puppet, MSkin as MPuppetSkin } from "./MPuppetMaster";
+import { MNetworkPlayerEntity, MNetworkEntity, CliTarget as EnTarget, CliTarget, InterpData } from "./NetworkEntity/MNetworkEntity";
+import { Puppet, MLoadOut as MPuppetSkin } from "./MPuppetMaster";
 import { MUtils } from "../Util/MUtils";
 import { GameEntityTags, g_main_camera_name } from "../GameMain";
 import { ProjectileType, MProjectileHitInfo } from "../MProjectileHitInfo";
+import { MFlopbackTimer } from "../helpers/MFlopbackTimer";
+import { CliCommand } from "./MPlayerInput";
+import { ServerSimulateTickMillis } from "../MServer";
+import { MJumpCurve, JumpState } from "../helpers/MCurve";
 
 const physicsNudgeDist : number = .01;
 const collisionBlockMargin : number = .2; // large for debug
 
 export const DEBUG_SPHERE_DIAMETER : number = 2;
+export const PLAYER_GRAVITY : number = -3;
+export const MAX_HEALTH : number = 5;
+
+
+const corners : Array<Vector3> = [
+    new Vector3(1, 0, 1), 
+    new Vector3(-1, 0, 1),
+    new Vector3(-1, 0, -1),
+    new Vector3(1, 0, 1)
+];
+
+const clearance : number = 2.3;
 
 export class MPlayerAvatar implements Puppet
 {
@@ -19,10 +35,29 @@ export class MPlayerAvatar implements Puppet
     fireRayHelper : RayHelper;
     private fireIndicatorMesh : Mesh;
 
-    public lastCliTarget : CliTarget = new CliTarget();
-    public cliTarget : CliTarget = new CliTarget();
+    public lastCliTarget : EnTarget = new EnTarget();
+    public cliTarget : EnTarget = new EnTarget();
 
     private debugLastFireDir : Vector3 = Vector3.Forward();
+
+    private headFeetCheckRays : Array<Ray> = new Array<Ray>(4); // garbage collection relief
+    private hfPickResult : Nullable<PickingInfo> = null;
+
+    private _grounded : boolean = false;
+    public get grounded() : boolean { return this._grounded; }
+    private groundY : number = 0;
+    private velocityY : number = 0;
+    public shouldJump : boolean = false;
+    private didJumpStart : MFlopbackTimer = new MFlopbackTimer(5);
+    private jumpCurve : MJumpCurve = new MJumpCurve(PLAYER_GRAVITY, 3);
+
+    private MAX_MULTI_JUMPS = 3;
+    private remainingJumps = 3;
+
+    public moveSpeed : number = .1;
+    
+    private debugShowHitTimer : MFlopbackTimer = new MFlopbackTimer(3);
+
 
     constructor
     (
@@ -37,7 +72,8 @@ export class MPlayerAvatar implements Puppet
         this.mesh.position.copyFromFloats(_startPos.x, _startPos.y, _startPos.z);
 
         Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
-        // this.mesh.checkCollisions = true;
+
+        this.mesh.checkCollisions = true;
         // this.mesh.isPickable = false;
 
         this.mesh.ellipsoid = new Vector3(1,1,1);
@@ -47,6 +83,20 @@ export class MPlayerAvatar implements Puppet
 
         this.fireIndicatorMesh = this.setupFireIndicatorMesh();
         this.toggleFireIndicator(false);
+
+        for(let i=0; i < this.headFeetCheckRays.length; ++i) { this.headFeetCheckRays[i] = new Ray(new Vector3(), new Vector3(), clearance * 3.1); } // debug shoudl be 1.1 not 5.1
+    }
+
+    getInterpData() : InterpData 
+    {
+        let id = new InterpData();
+        id.position.copyFrom(this.mesh.position);
+        return id;
+    }
+
+    setInterpData(id : InterpData) : void
+    {
+        this.mesh.position.copyFrom(id.position);
     }
 
     public destroy() : void 
@@ -63,7 +113,7 @@ export class MPlayerAvatar implements Puppet
         }, this.mesh.getScene());
 
         fim.setParent(this.mesh);
-        fim.setPositionWithLocalVector(Vector3.One());
+        fim.setPositionWithLocalVector(Vector3.One().add(new Vector3(0, 0, .8)));
 
         fim.material = new GridMaterial(`fim-mat-${this.mesh.name}`, this.mesh.getScene());
         return fim;
@@ -75,17 +125,30 @@ export class MPlayerAvatar implements Puppet
         fimMat.mainColor = isHit ? Color3.Red() : Color3.Blue();
     }
 
+    private paintFireIndicator(c : Color3) : void 
+    {
+        let fimMat = <GridMaterial> this.fireIndicatorMesh.material;
+        fimMat.mainColor = c;
+    }
+
     public showGettingHit(prjInfo: MProjectileHitInfo) : void 
     {
-        this.toggleFireIndicator(true);
+        this.debugShowHitTimer.start();
+        //this.toggleFireIndicator(true);
         this.fireRayHelper.hide();
         this.fireRayHelper.ray = prjInfo.ray;
         this.fireRayHelper.show(this.mesh.getScene(), new Color3(.9, .3, .5));
 
-        window.setInterval(() => {
-            // this.toggleFireIndicator(false);
-            // this.fireRayHelper.hide();
-        }, 4);
+    }
+
+    private setHeadFeetRays(yDir : number) : void
+    {
+        let middle = new Vector3(0, this.mesh.ellipsoid.y * .5 * yDir, 0).add(this.mesh.position); 
+        for(let i=0; i < 4; ++i)
+        {
+            this.headFeetCheckRays[i].origin.copyFromFloats(middle.x + corners[i].x, middle.y, middle.z + corners[i].z);
+            this.headFeetCheckRays[i].direction.copyFromFloats(0, yDir, 0);
+        }
     }
 
     // private getAimVector() : Vector3 
@@ -131,7 +194,7 @@ export class MPlayerAvatar implements Puppet
             let tgs = <string | null> Tags.GetTags(mesh, true); 
             if(tgs === null) return false;
             return tgs.indexOf(GameEntityTags.Terrain) >= 0 
-            // || tgs.indexOf(GameEntityTags.PlayerObject) >= 0 
+            || tgs.indexOf(GameEntityTags.PlayerObject) >= 0 
             || tgs.indexOf(GameEntityTags.Shadow) >= 0; // only shadows?
         });
 
@@ -191,11 +254,86 @@ export class MPlayerAvatar implements Puppet
         // }
     }
 
+    private updateGrounded() : void
+    {
+        this.setHeadFeetRays(-1);
+        for(let i=0; i < this.headFeetCheckRays.length; ++i)
+        {
+            this.hfPickResult = null;
+            this.hfPickResult = this.mesh.getScene().pickWithRay(this.headFeetCheckRays[i], (mesh) => {
+                return this.pickTerrain(mesh);
+            });
+
+            if(this.hfPickResult && this.hfPickResult.hit && this.hfPickResult.pickedPoint) 
+            { 
+                this.groundY = this.hfPickResult.pickedPoint.y;
+                this._grounded = true;
+                this.velocityY = 0;
+                return;
+            }
+        }
+        this._grounded = false;
+    }
+
+
+    private escapeBuriedInTerrain() : void 
+    {
+        throw new Error('not impld');
+    }
+
+    private applyGravity(dt : number) : void
+    {
+
+        if(this.jumpCurve.state === JumpState.NOT_JUMPING) 
+        { 
+            if(this.grounded)
+            {
+                this.cliTarget.interpData.position.y = this.groundY + clearance;
+            } else 
+            {
+                this.jumpCurve.state = JumpState.DESCENDING;
+            }
+        } 
+        
+        if(this.jumpCurve.state !== JumpState.NOT_JUMPING) 
+        {
+           // apply jump delta (but max() to protect against falling too fast)
+            this.cliTarget.interpData.position.y += Math.max(PLAYER_GRAVITY / 2.0, this.jumpCurve.delta); 
+
+            if(this.grounded && this.jumpCurve.state === JumpState.DESCENDING) {
+                if(this.groundY + clearance > this.cliTarget.interpData.position.y) {
+                    this.cliTarget.interpData.position.y = this.groundY + clearance;
+                    this.jumpCurve.state = JumpState.NOT_JUMPING;
+                    this.remainingJumps = this.MAX_MULTI_JUMPS;
+                }
+            }
+        }
+
+    }
+
+
+    public jump() : void 
+    {
+        if((this.grounded  && this.jumpCurve.state === JumpState.NOT_JUMPING) || 
+            (this.remainingJumps > 0 && this.jumpCurve.normalizedCurvePosition > .35)) {
+            this.remainingJumps--;
+            this.jumpCurve.state = JumpState.ASCENDING;
+        }
+
+    }
+
+    private pickTerrain(mesh : AbstractMesh) : boolean
+    {
+        if(!mesh.isPickable)
+                return false;
+        let tgs = Tags.GetTags(mesh);
+        return typeof(tgs) === 'string' && tgs.indexOf(GameEntityTags.Terrain) >= 0;
+    }
+
     public getRayCollisionAdjustedPos(pos : Vector3, depth ? : number) : Vector3
     {
         if(MUtils.VecContainsNan(this.mesh.position))
         {
-            // this.mesh.position.copyFrom(pos);
             return pos.clone();
         }
 
@@ -211,10 +349,7 @@ export class MPlayerAvatar implements Puppet
         this.debugRayHelper.ray = ray;
 
         let pickResult = this.mesh.getScene().pickWithRay(ray, (mesh : AbstractMesh) => {
-            if(!mesh.isPickable)
-                return false;
-            let tgs = Tags.GetTags(mesh);
-            return typeof(tgs) === 'string' && tgs.indexOf(GameEntityTags.Terrain) >= 0;
+            return this.pickTerrain(mesh);
         });
         
         if(pickResult && pickResult.hit)
@@ -291,78 +426,154 @@ export class MPlayerAvatar implements Puppet
                 return;
             }
 
-        }
+        } 
 
         this.debugRayHelper.show(this.mesh.getScene(), Color3.Green());
         this.mesh.position.copyFrom(pos);
 
     }
 
-    // TODO: de-weird collisions.  
-    // TODO: determine when to move with collision checks
-    // perhaps:
-    //    not during entity interp
-    //    yes during srvr apply commands
-    //    yes during cli apply commands (prediction and reconciliation)
-    //    but not while applying the authoritative state per the srvr.
-    //      in fact, set the whole srvr authoratitive state for all entities.
-    //       then re-apply cli commands (if we're not doing this already).
+    // todo: jumping with rudimentary forces / gravity
+    // TODO: head & feet collision detection (use boxes? no use rays to capture down (and not to the side))
 
-    // CONSIDER: players don't collide!
-
-    private moveMesh(offset : Vector3) : void
+    
+    applyNetEntityUpdateIngoreCollisions(ct: CliTarget): void 
     {
-        MUtils.AssertVecNotNan(offset);
-        this.mesh.position.addInPlace(offset);
-    }
-
-    private moveNoCollisions(absPos : Vector3) : void 
-    {
-        MUtils.AssertVecNotNan(absPos);
-        this.mesh.position.copyFrom(absPos);
-    }
-
-    private moveWithEnt(ent : MNetworkEntity) : void
-    {
-        let npe = <MNetworkPlayerEntity>(<unknown> ent);
-        if(!MUtils.VecContainsNan(npe.position)) {
-            if(MUtils.VecContainsNan(this.mesh.position)) { // new mesh perhaps?
-                this.mesh.position.copyFrom(npe.position);
-            } else {
-                this.moveMesh(npe.position.subtract(this.mesh.position));
-            }
+        if(!MUtils.VecContainsNan(ct.interpData.position)) {
+            this.mesh.position.copyFrom(ct.interpData.position);
         }
     }
-    
-    applyNetEntityUpdateIngoreCollisions(ent: MNetworkEntity): void 
+
+    applyNetworkEntityUpdate(ct : CliTarget) : void
     {
-        this.moveWithEnt(ent);
+        this.moveToPosWithRayCollisions(ct.interpData.position.clone());
     }
 
-    applyNetworkEntityUpdate(ne : MNetworkEntity) : void
+    teleport(pos : Vector3) : void
     {
-        let npe = <MNetworkPlayerEntity>(<unknown>ne);
-        this.moveToPosWithRayCollisions(npe.position.clone());
+        this.cliTarget.interpData.position.copyFrom(pos);
+        this.lastCliTarget.interpData.position.copyFrom(pos);
+        this.mesh.position.copyFrom(pos);
+        console.log(`ava telep ${pos}`);
     }
+
 
     //
     // movement & actions for client controlled players
     //
-    applyCliTarget(nextCliTarget : CliTarget) : void
+    pushCliTarget(nextCliTarget : CliTarget) : void
     {
         this.lastCliTarget = this.cliTarget.clone();
         this.cliTarget = nextCliTarget.clone();
     }
+
+    private static MoveDir(cmd : CliCommand) : Vector3
+    {
+        let groundForward = MUtils.ProjectOnNormal(cmd.forward, Vector3.Up()).normalize();
+        let groundRight = Vector3.Cross(Vector3.Up(), groundForward);
+        return groundForward.scale(cmd.vertical).add(groundRight.scale(cmd.horizontal)).normalize();
+    }
+
+    private makeNextTargetWithCollisions(cmd : CliCommand) : CliTarget
+    {
+        let nextTarget = this.cliTarget.clone();
+        nextTarget.timestamp = cmd.timestamp + ServerSimulateTickMillis;
+        nextTarget.interpData.position.addInPlace(MPlayerAvatar.MoveDir(cmd).scale(this.moveSpeed));
+        nextTarget.interpData.position = this.getRayCollisionAdjustedPos(nextTarget.interpData.position.clone());
+
+
+        return nextTarget;
+    }
+
+    private nextInterpDataFrom(cmd : CliCommand) : InterpData
+    {
+        let id = this.getInterpData();
+        let mv = MPlayerAvatar.MoveDir(cmd).scale(this.moveSpeed);
+        id.position.addInPlace(mv);
+        id.position = this.getRayCollisionAdjustedPos(id.position.clone());
+        return id;
+    }
+
+    // server
+    applyCommandServerSide(cmd : CliCommand) : void
+    {
+        // CONSIDER: could update cli target in place for gc smoothing
+        let target = this.makeNextTargetWithCollisions(cmd);
+
+        // for now blind acceptance
+        target.interpData.position.y = cmd.claimY;
+
+        // pinch targets
+        this.cliTarget.copyFrom(target);
+        this.lastCliTarget.copyFrom(this.cliTarget); 
+
+        // CONSIDER: 
+        // we have valid interpData even on the server in 'cliTarget'
+        // and we don't have to instantiate a new interpData in getInterpData() ? 
+
+        this.mesh.position.copyFrom(target.interpData.position);
+    } 
+
+    private debugJumpRepeatedly : boolean = false;
+
+    // cli controlled player
+    pushCliTargetWithCommand(cmd : CliCommand) : void
+    {
+        if(cmd.jump){
+            this.jump();
+        }
+
+        if(cmd.debugTriggerKey) {
+            this.debugJumpRepeatedly = !this.debugJumpRepeatedly;
+        }
+        if(this.debugJumpRepeatedly && this.jumpCurve.state === JumpState.NOT_JUMPING) {
+            this.jump();
+        }
+
+        this.lastCliTarget.copyFrom(this.cliTarget);
+        let next = this.makeNextTargetWithCollisions(cmd);
+        this.cliTarget.copyFrom(next);
+    }
+
     // todo: get a pos adjusted for collisions
     // set this as the interp target
+    renderLoopTick(dt : number) : void 
+    {
+        // console.log(`Bfr renloopTk: cliTrg: ${this.cliTarget.interpData.position}`);
+        this.updateGrounded();
+        this.didJumpStart.tick(dt / 1000.0);
+        this.jumpCurve.tick(dt / 1000.0);
+        this.applyGravity(dt);
+        this.interpolateWithCliTargets();
+        
+        // console.log(`Aft renloopTk: cliTrg: ${this.cliTarget.interpData.position}`);
+        this.debugShowHitTimer.tick(dt / 1000.0);
+        this.toggleFireIndicator(this.debugShowHitTimer.value);
+    }
 
-    interpolateWithCliTargets() : void 
+    // TODO: the server can't get accurate gravity behavior with a low resolution tick
+    // instead: let clients send a claimed y position (if they are not grounded)
+    // accept clients y pos if it passes a sniff test
+
+    // want?
+    // tickServerSide(dt : number) : void
+    // {
+    //     this.updateGrounded();
+    //     this.applyGravity(dt);
+        
+    //     // force latest pos from the now updated cliTarget
+    //     this.mesh.position.copyFrom(this.cliTarget.interpData.position);
+    // }
+
+    
+    private interpolateWithCliTargets() : void
     {
         let now = +new Date();
         let lerper = MUtils.GetSliderNumber(this.lastCliTarget.timestamp, this.cliTarget.timestamp, now);
         let l = CliTarget.Lerp(this.lastCliTarget, this.cliTarget, lerper);
         // this.moveToPosWithRayCollisions(l.position);
-        this.moveNoCollisions(l.position); // test
+        this.mesh.position.copyFrom(l.interpData.position);
+        //  this.moveNoCollisions(l.position); // test
     }
 
 }

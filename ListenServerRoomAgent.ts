@@ -93,8 +93,8 @@ export class ListenServerRoomAgent
         // use a transaction to limit num players per room
         // Atomically update room count
         firebase.database().ref(this.roomCountRef).transaction((count) => {
-            // if we're first to the room
-            // we're the server
+            // if we're first to the room,
+            // we're the server.
             // NOTE: running this in two chrome tabs leads to odd behavior; (running in two chrome windows seems ok)
             // OBSERVATION: this seems to get called twice sometimes (with different values for count).
             // so don't init anything based on the value of count here. (e.g. don't call 'onIsServer')
@@ -115,24 +115,20 @@ export class ListenServerRoomAgent
                 
                 this.onIsServer(this.user.isServer);
 
-            firebase.database().ref(this.roomCountRef).on('value', (snap) => {
-                this.debugPlayerCount.innerText = `${snap.val()}`;
+                firebase.database().ref(this.roomCountRef).on('value', (snap) => {
+                    this.debugPlayerCount.innerText = `${snap.val()}`;
 
-                //clean up if we are the last one out of the room
-                let c : number = snap.val();
-                if(c == 0) {
-                    firebase.database().ref(this.roomCountRef).remove();
+                    //clean up if we are the last one out of the room
+                    if(snap.val() == 0) {
+                        firebase.database().ref(this.roomCountRef).remove();
                 }
             });
-
 
             const addPeer = (rUserConfig : tfirebase.User) => { 
                 console.log(`remote user config: ${rUserConfig.displayName} color: ${rUserConfig.color}`);
 
                 // init an MSPeerConnection between us and them
                 var peer = new MSPeerConnection(this.user, rUserConfig.UID, this.messageBoothRef);
-
-                //TODO: interface MServer & MClient with LSRoomAgent
 
                 var other = new RemotePlayer(peer, rUserConfig);
                 var len : number = this.others.push(other); 
@@ -242,12 +238,6 @@ export class ListenServerRoomAgent
 
     }
 
-    // public PeerBroadcast(msg : string)
-    // {
-    //     this.readyOthers.forEach((other : RemotePlayer) => {
-    //         other.peer.send(msg);
-    //     });
-    // }
 
     // clean up
     public onDisconnect() 

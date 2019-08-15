@@ -6,6 +6,7 @@ export enum ProjectileType
     GenericLaser
 }
 
+//CONSIDER : a parent DamageInfo class
 export class MProjectileHitInfo
 {
     constructor(

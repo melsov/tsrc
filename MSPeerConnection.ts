@@ -72,15 +72,13 @@ export class MSPeerConnection
 
         // TODO: MS Edge error: https://stackoverflow.com/questions/13975922/script438-object-doesnt-support-property-or-method-ie
         // Does 'createDataChannel' somehow overlap with another namespace ??
-        this. sendChannel = this. localConnection.createDataChannel('sendDataChannel', sendChannelParams);
+        this.sendChannel = this.localConnection.createDataChannel('sendDataChannel', sendChannelParams);
         console.log("send channel undefined? " + (this.sendChannel == undefined));
-
-        //this.receiveChannel = new RTCDataChannel(); // placate ts compiler
 
         this. localConnection.onicecandidate = (event => {
             event.candidate ? 
-            this. sendMessage(this. yourId, JSON.stringify({'ice' : event.candidate})) : 
-            console.log('sent all ice'); 
+                this. sendMessage(this. yourId, JSON.stringify({'ice' : event.candidate})) : 
+                console.log('sent all ice'); 
         });
 
         console.log("create conn");
@@ -88,12 +86,12 @@ export class MSPeerConnection
         /*
          * Assigning class member functions to channel callbacks doesn't work (for us):
          * the channel objects show up undefined (in their own callback functions!)
-         * Work around: define the callbacks locally.
+         * Instead: define the callbacks locally.
          * OnSendChanStateCh, OnRecStateChanged, OnRecMsg
         */
         const OnSendChanStateCh = () => {
             if(this.sendChannel == undefined) { 
-                console.warn('sendChannel undefined?'); 
+                console.warn('sendChannel undefined'); 
                 return; 
             }
 
@@ -123,11 +121,11 @@ export class MSPeerConnection
             this.recExtraCallback(this.theirId, event);
         }
 
-        this. localConnection.ondatachannel = (event => {
+        this.localConnection.ondatachannel = (event => {
             this. receiveChannel = event.channel;
-            this. receiveChannel.onmessage = OnRecMsg; // this. onReceiveMessageCallback;
-            this. receiveChannel.onopen = OnRecStateChanged; // this. onReceiveChannelStateChange;
-            this. receiveChannel.onclose = OnRecStateChanged; // this. onReceiveChannelStateChange;
+            this. receiveChannel.onmessage = OnRecMsg; 
+            this. receiveChannel.onopen = OnRecStateChanged;
+            this. receiveChannel.onclose = OnRecStateChanged;
         });
 
         firebase.database().ref(this.fromThemBoothPath).on('child_added', (data) => {
@@ -152,10 +150,10 @@ export class MSPeerConnection
                     {
                         try {
                             console.log("got sdp: offer");
-                            this. localConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp))
-                                .then(() => this. localConnection.createAnswer())
-                                .then(answer => this. localConnection.setLocalDescription(answer))
-                                .then(() => this. sendMessage(this. yourId, JSON.stringify({'sdp': this. localConnection.localDescription})));
+                            this.localConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp))
+                                .then(() => this.localConnection.createAnswer())
+                                .then(answer => this.localConnection.setLocalDescription(answer))
+                                .then(() => this. sendMessage(this. yourId, JSON.stringify({'sdp': this.localConnection.localDescription})));
                         } catch(err) { console.log("setRemoDes ERr: " + err);}
                     }
                     else if (msg.sdp.type == "answer")
@@ -177,11 +175,11 @@ export class MSPeerConnection
     public createConnection()
     {
 
-        this. localConnection.createOffer()
+        this.localConnection.createOffer()
             .then(offer => {
                 console.log(`****offer from localConnection\n${offer.sdp}`);
 
-                this. localConnection.setLocalDescription(offer).then(() => {
+                this.localConnection.setLocalDescription(offer).then(() => {
                     console.log('sending sdp');
                     if(this. localConnection.localDescription) 
                     {

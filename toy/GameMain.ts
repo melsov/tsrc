@@ -1,4 +1,4 @@
-import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera } from 'babylonjs';
+import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera, PickingInfo, PointerEventTypes } from 'babylonjs';
 import { GridMaterial } from 'babylonjs-materials';
 import * as Gui from 'babylonjs-gui';
 
@@ -59,6 +59,8 @@ export class GameMain
     startRenderLoop() : void { this.shouldRenderDEBUG = true; }
     togglePaused() : void { this.shouldRenderDEBUG = !this.shouldRenderDEBUG; }
 
+    private isPointerLocked : boolean = false;
+
     clearColor : Color4;
 
     constructor(
@@ -70,10 +72,17 @@ export class GameMain
             (typeOfTestGame == TypeOfGame.ClientA ? g_render_canvas_client_id_a : g_render_canvas_client_id_b));
         this.engine = new Engine(this.canvas); //TODO: if isServer run headless
         this.scene = new Scene(this.engine);
-        this.camera = new UniversalCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene); // new FreeCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene);
-        
-        //test
-        this.camera.speed = 1.5;
+        this.camera = new UniversalCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene);
+        // we plan to move the camera manually
+        // because we don't want to have to mimic its 
+        // behavior on the server
+        this.camera.speed = 0; 
+        this.camera.angularSensibility = 500; // lower rotates cam faster
+        console.log(`INERTIA ${this.camera.inertia}`);
+        this.camera.inertia = .1; // 0 => follow mouse movement exactly
+
+        // if(typeOfTestGame != TypeOfGame.Server)
+        //     this.setupPointerLocking();
 
         // This targets the camera to scene origin
         if(typeOfTestGame === TypeOfGame.Server)
@@ -90,33 +99,6 @@ export class GameMain
 
         this.clearColor = typeOfTestGame === TypeOfGame.Server ? Color4.FromHexString('#441647FF') : Color4.FromHexString('#181647FF');
         this.scene.clearColor = this.clearColor;
-        
-        // Create a grid material
-        // var material =  new GridMaterial("grid", this.scene);
-
-        //Sphere
-        // Our built-in 'sphere' shape. Params: name, subdivs, size, scene
-        // var sphere = Mesh.CreateSphere("sphere1", 16, 2, this.scene);
-
-        // Move the sphere upward 1/2 its height
-        // sphere.position.y = 2;
-
-        // Affect a material
-        // sphere.material = material;
-
-        // this.playerRoot = new TransformNode("playerRoot", this.scene);
-        // this.playerRoot.position.y = 2;
-        // sphere.parent = this.playerRoot;
-
-        // CORS blocks this. probably need to run on an actual http server. (else we're calling from domain 'null' which is too suspicious for chrome)
-        // SceneLoader.Append("./models/", "city.babylon", <Scene>(<unknown> this.scene), (_scene) => {
-        //     console.log("appended the mesh");
-        // });
-
-        // SceneLoader.Append("./models/", "city.babylon", this.scene, (_scene) => {
-        //     console.log("appended the mesh");
-        // });
-
 
         SceneLoader.ImportMesh( null, './models/', 'city.babylon', this.scene, (meshes, particleSystems, animationGroups) => {
             meshes.forEach((m) => {
@@ -129,6 +111,7 @@ export class GameMain
         this.makeMousePickPlane();
 
     }
+
 
     private makeMousePickPlane()
     {

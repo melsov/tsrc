@@ -59,7 +59,7 @@ export class MWorldState
         });
 
         return delta;
-    }
+    } 
 
     public setEntity(uid : string, ent : MNetworkEntity) : void
     {
@@ -98,6 +98,14 @@ export class MWorldState
     //     });
     // }
     
+//
+// TODO: think about how what gets communicated when...
+// there's probably a reason to set up an official InterpData class
+// That is the proxy for a network entity in a world state
+// current State (i.e. an actual set of player entities)
+// make InterpData when the world state gets saved
+//
+
     // client side
     public apply(state : MWorldState) : void
     {

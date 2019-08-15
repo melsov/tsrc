@@ -41,6 +41,11 @@ export namespace MUtils
         return (isNaN(v.x) || isNaN(v.y) || isNaN(v.z));
     }
 
+    export function CopyXZInPlace(from : Vector3, to : Vector3) : void
+    {
+        from.x = to.x; from.z = to.z;
+    }
+
     //
     // Returns a 'shadow' vector on the plane represented by normal
     // assume normal is normalized
@@ -92,6 +97,19 @@ export namespace MUtils
     {
         if(Math.abs(to - from) < .00001) return 0;
         return (t - from) / (to - from);
+    }
+
+    // credit: https://stackoverflow.com/questions/7616461/generate-a-hash-from-string-in-javascript
+    export function StringToHash(str : string) : number 
+    {
+        let hash = 0, i, chr;
+        if (str.length === 0) return hash;
+        for (i = 0; i < str.length; i++) {
+            chr   = str.charCodeAt(i);
+            hash  = ((hash << 5) - hash) + chr;
+            hash |= 0; // Convert to 32bit integer
+        }
+        return hash;
     }
 
 }

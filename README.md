@@ -5,6 +5,8 @@ If you're reading this and you're not me, I wouldn't recommend this repo.
 
 Many things need major redesigns.
 
+MSPeerConnection might be helpful, as WebRTC example code.
+
 Requires the following npm modules:
 
 <code>
@@ -15,6 +17,7 @@ babylonjs-materials
 babylonjs-gui
 typescript-collections
 </code>
+
 
 To compile to javascript:
 

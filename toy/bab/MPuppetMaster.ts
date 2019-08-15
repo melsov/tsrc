@@ -1,41 +1,54 @@
 import { Dictionary } from "typescript-collections";
-import { MNetworkEntity, EntityType } from "./NetworkEntity/MNetworkEntity";
+import { MNetworkEntity, EntityType, CliTarget, InterpData } from "./NetworkEntity/MNetworkEntity";
 import { TransformNode, Scene, Engine, Color3, Vector3 } from "babylonjs";
 import { MPlayerAvatar } from "./MPlayerAvatar";
+import { MUtils } from "../Util/MUtils";
 
 
 
 export interface Puppet
 {
-    applyNetEntityUpdateIngoreCollisions(ent : MNetworkEntity) : void;
-    applyNetworkEntityUpdate(ent : MNetworkEntity) : void;
-    customize(skin : MSkin) : void;
+    applyNetEntityUpdateIngoreCollisions(ent : CliTarget) : void;
+    applyNetworkEntityUpdate(ent : CliTarget) : void;
+    customize(skin : MLoadOut) : void;
+
+    getInterpData() : InterpData;
+    setInterpData(id : InterpData) : void;
 }
 
 export class PlaceholderPuppet implements Puppet
 {
-    applyNetEntityUpdateIngoreCollisions(ent : MNetworkEntity) : void {}
-    applyNetworkEntityUpdate(ent: MNetworkEntity): void {  }
-    customize(skin: MSkin): void { }
+    applyNetEntityUpdateIngoreCollisions(ent : CliTarget) : void {}
+    applyNetworkEntityUpdate(ent: CliTarget): void {  }
+    customize(skin: MLoadOut): void { }
+
+    protected interpData : InterpData = new InterpData();
+    getInterpData() : InterpData { return this.interpData; }
+    setInterpData(id : InterpData) : void { this.interpData.copyFrom(id); }
+
 }
 
-export class MSkin
+export class MLoadOut
 {
+    public static GetHash(lo : MLoadOut) { return MUtils.StringToHash(JSON.stringify(lo)); }
+
     color : Color3 = Color3.Teal();
 
-    public static OrderUpASkin(index : number) : MSkin
+
+
+    public static DebugCreateLoadout(index : number) : MLoadOut
     {
-        let skin = new MSkin();
+        let loadOut = new MLoadOut();
         switch(index){
             case 0:
-                skin.color = Color3.Purple();
+                loadOut.color = Color3.Purple();
                 break;
             case 1:
-                skin.color = Color3.Yellow();
+                loadOut.color = Color3.Yellow();
                 break;
 
         }
-        return skin;
+        return loadOut;
     }
 }
 

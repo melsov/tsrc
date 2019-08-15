@@ -3,7 +3,8 @@ import { UniversalCamera, Vector3, TransformNode } from "babylonjs";
 export class FPSCam
 {
 
-
+    public zoomedOutFOVRadians : number = 1.2;
+    public zoomedInFOVRadians : number = .3;
 
     constructor(
         public readonly cam : UniversalCamera,
@@ -23,7 +24,7 @@ export class FPSCam
         return Vector3.Cross(Vector3.Up(), this.forward());
     }
 
-    lerpToTarget() : void
+    renderLoopTick() : void
     {
         this.cam.position = Vector3.Lerp(this.cam.position, this.followTarget.position, .5);
     }
@@ -31,6 +32,11 @@ export class FPSCam
     snapToTarget() : void
     {
         this.cam.position = this.followTarget.position;
+    }
+
+    toggleFOV(shouldZoom : boolean) : void
+    {
+        this.cam.fov = shouldZoom ?  this.zoomedInFOVRadians : this.zoomedOutFOVRadians;
     }
 
 }
