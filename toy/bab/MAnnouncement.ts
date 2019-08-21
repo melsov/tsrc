@@ -50,7 +50,6 @@ export class MMessageBoard
     {
 
         if(anns === undefined) { return; }
-        console.log(`got msg: ${anns.length}`);
         
         for(let i=0; i<anns.length; ++i) { 
             this.add(anns[i], true);

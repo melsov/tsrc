@@ -24,7 +24,7 @@ export class FPSCam
         return Vector3.Cross(Vector3.Up(), this.forward());
     }
 
-    renderLoopTick() : void
+    renderTick() : void
     {
         this.cam.position = Vector3.Lerp(this.cam.position, this.followTarget.position, .5);
     }

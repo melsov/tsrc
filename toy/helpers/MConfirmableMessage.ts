@@ -166,6 +166,7 @@ export class ConfirmableMessageOrganizer
 //
 export class MConfirmableMessageBook
 {
+    // TODO: mechanism to count send attempts
     private book : Dictionary<number, CMValueType> = new Dictionary<number, CMValueType>();
 
     public getUnconfirmedMessages() : CMValueType[]
@@ -212,7 +213,8 @@ export class MConfirmableMessageBook
 
     public add(msg : CMValueType) : void
     {
-        this.book.setValue(msg.hashcode(), msg);
+        let hash = msg.hashcode();
+        this.book.setValue(hash, msg);
     }
 
     public addArray(cms : CMValueType[]) : void

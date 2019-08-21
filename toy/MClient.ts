@@ -1,4 +1,4 @@
-import { LagNetwork, LaggyPeerConnection } from "./LagNetwork";
+import { LagNetwork, LaggyPeerConnection, LAG_MS_FAKE } from "./LagNetwork";
 import * as MServer from "./MServer";
 //import { Fakebase } from "./Fakebase";
 import { MNetworkPlayerEntity, MNetworkEntity } from "./bab/NetworkEntity/MNetworkEntity";
@@ -21,6 +21,7 @@ import { MMessageBoard } from "./bab/MAnnouncement";
 import { ConfirmableMessageOrganizer, ConfirmableType, MAnnouncement, MPlayerReentry, MExitDeath } from "./helpers/MConfirmableMessage";
 import { LifeStage, StageType } from "./MLifeCycle";
 import { Mel } from "./html-gui/LobbyUI";
+import { LagQueue } from "./helpers/LagQueue";
 
 
 
@@ -48,6 +49,7 @@ export function CommandFromString(str : string) : CliCommand
 {
     let cmd = <CliCommand> JSON.parse(str);
     cmd.forward = BHelpers.Vec3FromJSON(cmd.forward);
+    cmd.rotation = BHelpers.Vec3FromJSON(cmd.rotation);
     return cmd;
 }
 
@@ -78,7 +80,8 @@ export class MClient
 
     private sampleInputTimer : MTickTimer = new MTickTimer(MServer.ServerSimulateTickMillis);
 
-    private fromServer : Collections.Queue<string> = new Collections.Queue<string>();
+    private fromServer : LagQueue<string> = new LagQueue<string>(LAG_MS_FAKE);
+    // private fromServer : Collections.Queue<string> = new Collections.Queue<string>();
     private reliableFromServer : Collections.Queue<string> = new Collections.Queue<string>();
 
     private gotFirstServerMessage : boolean = false;
@@ -229,7 +232,7 @@ export class MClient
         {
             this.interpolateOthers();
             this.playerEntity.renderTick(this.game.engine.getDeltaTime());
-            this.fpsCam.renderLoopTick();
+            this.fpsCam.renderTick();
         }
     }
 
@@ -251,7 +254,12 @@ export class MClient
         command.inputSequenceNumber = this.inputSequenceNumber++;
 
         command.forward = this.fpsCam.forward();
-        this.playerEntity.applyCliCommand(command); // with collisions
+        command.rotation = this.game.camera.rotation.clone();
+
+        if (this.clientSidePrediction.checked)
+        {
+            this.playerEntity.applyCliCommand(command); // with collisions
+        }
 
         command.claimY = this.playerEntity.position.y;
 
@@ -261,9 +269,6 @@ export class MClient
         // if(command.debugGoWrongPlace){
         //     this.playerEntity.teleport(this.playerEntity.position.add(new Vector3(0, 0, 3)));
         //     console.log(`go wrong place ${this.playerEntity.position}`);
-        // }
-        // if (this.clientSidePrediction.checked)
-        // {
         // }
         
         command.debugPosAfterCommand = this.playerEntity.position;
@@ -363,6 +368,7 @@ export class MClient
            
             // put our player in the server authoritative state
             let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
+            if(playerState.playerPuppet && playerState.playerPuppet.mesh) console.warn(`got svr pos: ${playerState.playerPuppet.mesh.position}`)
             this.playerEntity.apply(playerState);
 
             if(!this.gotFirstServerMessage) {
@@ -372,7 +378,7 @@ export class MClient
 
 
             // / ******
-            if(this.serverReconciliation.checked)
+            if(this.serverReconciliation.checked && this.clientSidePrediction.checked)
             {
                 // // put our player in the server authoritative state
                 // let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
@@ -381,7 +387,6 @@ export class MClient
                 // reapply newer inputs
                 let j = 0;
 
-                if(this.clientSidePrediction.checked)
                 while(j < this.pendingInputs.length)
                 {
                     let input = this.pendingInputs[j];
@@ -409,9 +414,10 @@ export class MClient
                 // debug pos after command
             }
            // */ 
-            
-
+           
         } // END WHILE TRUE
+
+        if(!this.clientSidePrediction) { this.pendingInputs.splice(0, this.pendingInputs.length); } // just clear pending inputs (we shouldn't really need to do this...)
 
         this.debugHud.show(`pos: ${MUtils.RoundVecString((<MNetworkPlayerEntity>this.clientViewState.lookup.getValue(this.user.UID)).position)}`);
         

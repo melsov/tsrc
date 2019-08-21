@@ -9,10 +9,11 @@ export class CliCommand
     horizontal : number = 0;
     vertical : number = 0;
     forward : Vector3 = Vector3.Forward();
+    rotation : Vector3 = Vector3.Zero();
     claimY : number = 0;
     fire : boolean = false;
     jump : boolean = false;
-    debugTriggerKey : boolean = false;
+    debugTriggerKey : boolean = false; 
     
     inputSequenceNumber : number = 0;
     
@@ -216,8 +217,6 @@ export class MPlayerInput
     private handlePointer(isDown : boolean, ev : PointerEvent, pinfo : Nullable<PickingInfo>, types : PointerEventTypes)
     {
 
-        console.log(`h pointer: ${ev.button}`);
-        
         switch(ev.button)
         {
             case 0: // lmb

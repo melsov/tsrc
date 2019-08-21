@@ -4,17 +4,19 @@ import { TransformNode, Vector3, Ray, Nullable, Mesh, MeshBuilder, Tags, Standar
 import { BHelpers } from "../../MBabHelpers";
 import { Puppet, PlaceholderPuppet, MLoadOut } from "../MPuppetMaster";
 import { MPlayerAvatar, DEBUG_SPHERE_DIAMETER, MAX_HEALTH as MAX_HEALTH_PLAYER } from "../MPlayerAvatar";
-import { MProjectileHitInfo, ProjectileType } from "../../MProjectileHitInfo";
+import { MProjectileHitInfo, ProjectileType } from "./transient/MProjectileHitInfo";
 import { GameEntityTags } from "../../GameMain";
 import { MUtils } from "../../Util/MUtils";
+import { MTransientStateBook } from "./transient/MTransientStateBook";
 
 export abstract class MNetworkEntity
 {
     public abstract entityType : number;
 
-    protected abstract puppet : Puppet;
+    public abstract puppet : Puppet;
 
-    public shouldDelete : boolean = false;
+    public get shouldDelete() : boolean {return false; }
+    public set shouldDelete(val : boolean)  { }
 
     public isDelta : boolean = false;
 
@@ -77,28 +79,33 @@ export enum EntityType
 export class InterpData
 {
     position : Vector3;
+    rotation : Vector3;
     constructor(
-         _position ? : Vector3
+         _position ? : Vector3,
+         _rotation ? : Vector3
     ) {
         this.position = (_position !== undefined) ? _position : Vector3.Zero();
+        this.rotation = (_rotation !== undefined) ? _rotation : Vector3.Zero();
     }
 
     clone() : InterpData
     {
         let other = new InterpData();
-        other.position.copyFrom(this.position);
+        other.copyFrom(this);
         return other;
     }
 
     copyFrom(other : InterpData) : void
     {
         this.position.copyFrom(other.position);
+        this.rotation.copyFrom(other.rotation);
     }
 
     static Lerp(a : InterpData, b : InterpData, t : number) : InterpData
     {
         let l = new InterpData();
         l.position = Vector3.Lerp(a.position, b.position, t);
+        l.rotation = Vector3.Lerp(a.rotation, b.rotation, t);
         return l;
     }
 }
@@ -178,10 +185,11 @@ function FromToInterp(a : OtherPlayerInterpolation, b : OtherPlayerInterpolation
     let opi = new OtherPlayerInterpolation();
     let lerper = (renderTimestamp - a.timestamp) / (b.timestamp - a.timestamp);
 
-    opi.interpData.position = a.interpData.position.add(b.interpData.position.subtract(a.interpData.position).scale(lerper));
+    opi.interpData = InterpData.Lerp(a.interpData, b.interpData, lerper);
+    // opi.interpData.position = a.interpData.position.add(b.interpData.position.subtract(a.interpData.position).scale(lerper));
 
     return opi;
-}
+} 
 
 //
 // MNetworkPlayerEntity manages syncing itself over
@@ -193,6 +201,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     public get netId(): string { return this._netId; } // sendData.netId; }
     public get position() : Babylon.Vector3 { return this.playerPuppet.getInterpData().position; } // this.sendData.position; }
     public get entityType() : number { return EntityType.PLAYER; }; // = <number> EntityType.PLAYER;
+
     
     public health : number = MAX_HEALTH_PLAYER;
 
@@ -202,12 +211,14 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     private savedCurrentPos : Nullable<Vector3> = null;
 
-
-    public projectileHitsOnMe : Array<MProjectileHitInfo> = new Array<MProjectileHitInfo>();
+    public get shouldDelete() : boolean {return this.transientStateBook.shouldDelete; }
+    public set shouldDelete(val : boolean)  { this.transientStateBook.shouldDelete = val; }
+    // protected projectileHitsOnMe : Array<MProjectileHitInfo> = new Array<MProjectileHitInfo>();
+    protected transientStateBook : MTransientStateBook = new MTransientStateBook();
 
     // public moveSpeed : number = .1;
     
-    protected puppet : Puppet = new PlaceholderPuppet();
+    public puppet : Puppet = new PlaceholderPuppet();
 
     public get playerPuppet() : MPlayerAvatar { return <MPlayerAvatar> this.puppet; }
     
@@ -225,14 +236,15 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     //
     // debug: shadow to show our position from the
     // perspective of another client
-    public  shadow : Nullable<Mesh> = null;
+    // public  shadow : Nullable<Mesh> = null;
 
     constructor(
         public _netId : string, 
-        pos ? : Babylon.Vector3) 
+        _pos ? : Vector3,
+        _rot ? : Vector3) 
     {
         super();
-        this.puppet.setInterpData(new InterpData(pos));
+        this.puppet.setInterpData(new InterpData(_pos, _rot));
     }
     
 
@@ -245,18 +257,18 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     
     public setupShadow(scene : Scene, debugColorIndex : number)
     {
-        // shadow
-        this.shadow = MeshBuilder.CreateSphere(`${this.netId}-shadow`, {
-            diameter : DEBUG_SPHERE_DIAMETER
-        }, scene);
+        // // shadow
+        // this.shadow = MeshBuilder.CreateSphere(`${this.netId}-shadow`, {
+        //     diameter : DEBUG_SPHERE_DIAMETER
+        // }, scene);
     
-        let shmat = new StandardMaterial(`mat-shadow-${this.netId}`,scene);
-        let shcolor = MLoadOut.DebugCreateLoadout(debugColorIndex).color;
-        shcolor = shcolor.scale(.7);
-        shmat.diffuseColor = shcolor;
-        this.shadow.material = shmat;
+        // let shmat = new StandardMaterial(`mat-shadow-${this.netId}`,scene);
+        // let shcolor = MLoadOut.DebugCreateLoadout(debugColorIndex).color;
+        // shcolor = shcolor.scale(.7);
+        // shmat.diffuseColor = shcolor;
+        // this.shadow.material = shmat;
     
-        Tags.AddTagsTo(this.shadow, GameEntityTags.Shadow);
+        // Tags.AddTagsTo(this.shadow, GameEntityTags.Shadow);
 
     }
 
@@ -264,16 +276,18 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     public clone() : MNetworkPlayerEntity
     {
-        let npe = new MNetworkPlayerEntity(this.netId, this.position);
+        let npe = new MNetworkPlayerEntity(this.netId, this.position, this.puppet.getInterpData().rotation);
         npe.health = this.health;
-        MNetworkPlayerEntity.CloneNonDeltaData(this, npe);
+
+        MNetworkPlayerEntity.CloneTransientData(this, npe);
         return npe;
     }
 
-    public static CloneNonDeltaData(from : MNetworkPlayerEntity, to : MNetworkPlayerEntity) : void
+    public static CloneTransientData(from : MNetworkPlayerEntity, to : MNetworkPlayerEntity) : void
     {
-        to.projectileHitsOnMe = from.projectileHitsOnMe.slice(0);
-        to.shouldDelete = from.shouldDelete;
+        to.transientStateBook = from.transientStateBook.clone();
+        // to.projectileHitsOnMe = from.projectileHitsOnMe.slice(0);
+        // to.shouldDelete = from.shouldDelete;
     }
     
     // JSON.stringify() looks for this method.
@@ -296,15 +310,16 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
         let jObj : any = {'s' : sendData}; 
 
-        if(this.projectileHitsOnMe.length > 0) 
-        {
-            jObj.hom = this.projectileHitsOnMe; 
-        }
+        this.transientStateBook.addToObject(jObj);
+        // if(this.projectileHitsOnMe.length > 0) 
+        // {
+        //     jObj.hom = this.projectileHitsOnMe; 
+        // }
 
-        if(this.shouldDelete)
-        {
-            jObj.x = true;
-        }
+        // if(this.shouldDelete)
+        // {
+        //     jObj.x = true;
+        // }
 
         if(this.isDelta)
         {
@@ -317,18 +332,23 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     public static deserialize(joData : any) : MNetworkPlayerEntity
     {
         let joSendData = joData.s; 
-        let npe = new MNetworkPlayerEntity(joSendData.netId, BHelpers.Vec3FromJSON(joSendData.interpData.position));
+        let npe = new MNetworkPlayerEntity(
+            joSendData.netId, 
+            BHelpers.Vec3FromJSON(joSendData.interpData.position), 
+            BHelpers.Vec3FromJSON(joSendData.interpData.rotation));
+
         npe.health = joSendData.health;
 
-        // hits on me
-        if(joData.hom != undefined)
-        {
-            console.log(`hits on me: ${JSON.stringify(joData.hom)}`);
-            let hits = <Array<MProjectileHitInfo>> joData.hom;
-            for(let i=0; i < hits.length; ++i) npe.projectileHitsOnMe.push(MProjectileHitInfo.FromJSON(hits[i]));
-        }
+        npe.transientStateBook = MTransientStateBook.ExtractFromObject(joData);
+        // // hits on me
+        // if(joData.hom != undefined)
+        // {
+        //     console.log(`hits on me: ${JSON.stringify(joData.hom)}`);
+        //     let hits = <Array<MProjectileHitInfo>> joData.hom;
+        //     for(let i=0; i < hits.length; ++i) npe.projectileHitsOnMe.push(MProjectileHitInfo.FromJSON(hits[i]));
+        // }
 
-        npe.shouldDelete = joData.x != undefined;
+        // npe.shouldDelete = joData.x != undefined;
         npe.isDelta = joData.d != undefined;
         
         return npe;
@@ -336,11 +356,12 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
 
     //
-    //  Server: clear for example hits on me list
+    //  Server: clear, for example, hits on me list
     //
     public clearTransientStates() : void 
     {
-        this.projectileHitsOnMe.length = 0;
+        this.transientStateBook.clear();
+        // this.projectileHitsOnMe.length = 0;
     }   
     
     protected moveDir(cmd : CliCommand) : Vector3
@@ -378,15 +399,13 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     public getHitByProjectile(prjInfo : MProjectileHitInfo) 
     {
         console.log(`got hit ${prjInfo}`);
-        this.projectileHitsOnMe.push(prjInfo);
+        this.transientStateBook.projectileHitsOnMe.push(prjInfo);
         this.playerPuppet.showGettingHit(prjInfo);
         this.health = Math.max(0, this.health - prjInfo.damage);
     }
-
     
     public teleport(pos : Vector3) : void
     {
-        console.log(`teleport : ${pos}`);
         //force the puppet
         this.playerPuppet.teleport(pos);
         // this.sendData.position.copyFrom(pos); 
@@ -405,8 +424,8 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     {
         this.savedCurrentPos = this.position.clone();
         //debug place shadow
-        if(this.shadow)
-            this.shadow.position = pos.clone();
+        // if(this.shadow)
+        //     this.shadow.position = pos.clone();
         this.teleport(pos);
     }
     
@@ -414,7 +433,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     //TODO: something funky when we apply deltas instead of abs states....
     public apply(update : MNetworkPlayerEntity) : void
     {
-        this.shouldDelete = update.shouldDelete;
+        this.transientStateBook.shouldDelete = update.transientStateBook.shouldDelete;
 
         this.health = update.health;
 
@@ -435,12 +454,15 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     
 
+    // Use only for interpolating other players
     protected applyToPuppet(cliTar : CliTarget, ignoreCollisions ? : boolean)
     {
         if(ignoreCollisions != undefined && ignoreCollisions)
             this.puppet.applyNetEntityUpdateIngoreCollisions(cliTar);
         else 
             this.puppet.applyNetworkEntityUpdate(cliTar);
+
+        
 
         // apply puppet pos back to our send data.
         // our need to do this might indicate a design flaw ;P
@@ -455,6 +477,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
         let opi = new OtherPlayerInterpolation();
         try {
             opi.interpData.position.copyFrom(this.position);
+            opi.interpData.copyFrom(this.puppet.getInterpData());
         } catch {
             console.log(`our mesh exists ? ${this.playerPuppet.mesh}`);
         }
@@ -481,15 +504,17 @@ export class MNetworkPlayerEntity extends MNetworkEntity
         {
             let opi = FromToInterp(this.interpBuffer[0], this.interpBuffer[1], renderTimestamp);
 
-            if(!this.shadow) // DEBUG
+            //if(!this.shadow) // DEBUG
             {
                 // this.sendData.position = opi.interpData.position;
                 let ct = new CliTarget();
-                ct.interpData.position.copyFrom(opi.interpData.position);
+                ct.interpData.copyFrom(opi.interpData);
+                // ct.interpData.position.copyFrom(opi.interpData.position);
                 this.applyToPuppet(ct, true); 
-            } else {
-                // this.shadow.position = opi.position; // turn off for now
-            }
+            } 
+            // else {
+            //     // this.shadow.position = opi.position; // turn off for now
+            // }
         }
     }
 
@@ -499,9 +524,9 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     public pushStateChanges(npe : MNetworkPlayerEntity) : void
     {
         // handle getting hit
-        while(npe.projectileHitsOnMe.length > 0)
+        while(npe.transientStateBook.projectileHitsOnMe.length > 0)
         {
-            this.playerPuppet.showGettingHit(<MProjectileHitInfo>npe.projectileHitsOnMe.shift());
+            this.playerPuppet.showGettingHit(<MProjectileHitInfo>npe.transientStateBook.projectileHitsOnMe.shift());
         }
     }
 
@@ -511,7 +536,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     {
         let pos = this.position.subtract(other.position);
         let npe = new MNetworkPlayerEntity(this.netId, pos);
-        MNetworkPlayerEntity.CloneNonDeltaData(this, npe);
+        MNetworkPlayerEntity.CloneTransientData(this, npe);
         npe.isDelta = true;
         return npe;
     }
@@ -528,7 +553,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     public destroySelf() : void
     {
-        if(this.shadow) this.shadow.dispose();
+        // if(this.shadow) this.shadow.dispose();
         this.playerPuppet.destroy();
     }
 

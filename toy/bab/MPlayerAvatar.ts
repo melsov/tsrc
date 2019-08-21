@@ -1,10 +1,10 @@
-import { TransformNode, Scene, Engine, Mesh, Color3, Vector3, Ray, RayHelper, MeshBuilder, PickingInfo, Nullable, Tags, AbstractMesh, Camera, Vector4 } from "babylonjs";
+import { Animation, TransformNode, Scene, Engine, Mesh, Color3, Vector3, Ray, RayHelper, MeshBuilder, PickingInfo, Nullable, Tags, AbstractMesh, Camera, Vector4, Quaternion, SceneLoader, Skeleton } from "babylonjs";
 import { GridMaterial } from "babylonjs-materials";
 import { MNetworkPlayerEntity, MNetworkEntity, CliTarget as EnTarget, CliTarget, InterpData } from "./NetworkEntity/MNetworkEntity";
 import { Puppet, MLoadOut as MPuppetSkin } from "./MPuppetMaster";
 import { MUtils } from "../Util/MUtils";
 import { GameEntityTags, g_main_camera_name } from "../GameMain";
-import { ProjectileType, MProjectileHitInfo } from "../MProjectileHitInfo";
+import { ProjectileType, MProjectileHitInfo } from "./NetworkEntity/transient/MProjectileHitInfo";
 import { MFlopbackTimer } from "../helpers/MFlopbackTimer";
 import { CliCommand } from "./MPlayerInput";
 import { ServerSimulateTickMillis } from "../MServer";
@@ -58,39 +58,79 @@ export class MPlayerAvatar implements Puppet
     
     private debugShowHitTimer : MFlopbackTimer = new MFlopbackTimer(3);
 
-
     constructor
     (
         _scene : Scene,
         _startPos : Vector3,
-        _name : string
+        _name : string,
     )
     {
-        this.mesh = MeshBuilder.CreateSphere(`${_name}`, {diameter : DEBUG_SPHERE_DIAMETER}, _scene);
-        let mat = new GridMaterial(`mat-${_name}`, _scene);
-        this.mesh.material = mat;
-        this.mesh.position.copyFromFloats(_startPos.x, _startPos.y, _startPos.z);
-
-        Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
-
+        this.mesh = MeshBuilder.CreateSphere(`${_name}`, {diameter : DEBUG_SPHERE_DIAMETER / 3}, _scene); // happy tsc.mesh will be set elsewhere
         this.mesh.checkCollisions = true;
-        // this.mesh.isPickable = false;
-
         this.mesh.ellipsoid = new Vector3(1,1,1);
+        this.mesh.position.copyFromFloats(_startPos.x, _startPos.y, _startPos.z);
+        this.fireIndicatorMesh = this.setupFireIndicatorMesh(); // make tsc happy
+        // this.toggleFireIndicator(false);
+
+        this.importCharacter(_name, _scene, _startPos);
 
         this.debugRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
         this.fireRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
 
-        this.fireIndicatorMesh = this.setupFireIndicatorMesh();
-        this.toggleFireIndicator(false);
 
         for(let i=0; i < this.headFeetCheckRays.length; ++i) { this.headFeetCheckRays[i] = new Ray(new Vector3(), new Vector3(), clearance * 3.1); } // debug shoudl be 1.1 not 5.1
+
+        //this.makeNoseMesh();
+    }
+
+    private importCharacter(_name : string, _scene : Scene, _pos : Vector3) : void
+    {
+        SceneLoader.ImportMesh( null, './models/', 'golf.babylon', _scene, (meshes, particleSystems, animationGroups) => {
+            meshes.forEach((m) => {
+                console.log(`${_name}: char import: ${m.name}`);
+                //if(m.name === 'Head') {
+                    this.characterImportCallback(<Mesh>m, _name, _scene, _pos);
+                //}
+
+                // console.log(`num anims on mesh m: ${m.animations.length}`);
+                // m.animations.forEach((anim : Animation, index : number, array : Animation[]) => {
+                //     console.log(`begin anim: ${anim.name}`);
+                //     _scene.beginAnimation(anim, 0, 100, true);
+                // });
+            });
+
+            console.log(`num anim groups: ${animationGroups.length}`);
+            // animationGroups.forEach((skel : Skeleton, idx : number, array : Skeleton[]) => {
+            //     console.log(`anim: ${skel.name} idx: ${idx}, skels: ${JSON.stringify(array)}`);
+            // });
+        });
+    }
+    
+    private characterImportCallback(m : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
+    {
+        //m.name = `${_name}-body`;
+        Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
+        m.material = new GridMaterial(`mat-${_name}`, _scene);
+        
+        // this.mesh.isPickable = false;
+        m.parent = this.mesh;
+
+        
+    }
+
+    private makeNoseMesh() : void 
+    {
+        let nose = MeshBuilder.CreateBox('nose', { size : DEBUG_SPHERE_DIAMETER * .3}, this.mesh.getScene());
+        Tags.AddTagsTo(nose, GameEntityTags.InvisibleToRaycasts);
+        nose.parent = this.mesh;
+        nose.setPositionWithLocalVector(new Vector3(0, 0, DEBUG_SPHERE_DIAMETER * .4));
     }
 
     getInterpData() : InterpData 
     {
         let id = new InterpData();
         id.position.copyFrom(this.mesh.position);
+        id.rotation.copyFrom(this.mesh.rotation);
         return id;
     }
 
@@ -98,6 +138,15 @@ export class MPlayerAvatar implements Puppet
     {
         this.mesh.position.copyFrom(id.position);
     }
+
+    getBoundsCorners() : Vector3[]
+    {
+        let corners = new Array<Vector3>();
+        corners.push(this.mesh.position.clone());
+        // corners.push(this.mesh.position.add(this.mesh.ellipsoid.scale(.6)));
+        // corners.push(this.mesh.position.add(this.mesh.ellipsoid.scale(-.6)));
+        return corners;
+    }    
 
     public destroy() : void 
     {
@@ -214,8 +263,17 @@ export class MPlayerAvatar implements Puppet
 
     public customize(skin : MPuppetSkin) : void
     {
-        let gridMat : GridMaterial = <GridMaterial> this.mesh.material;
-        gridMat.mainColor = skin.color;
+        // let gridMat : GridMaterial = <GridMaterial> this.mesh.material;
+        // gridMat.mainColor = skin.color; // want
+
+        // WANT BUT, long story: keep this out at the moment. Otherwise spaghetti.
+        // Why the spaghetti. well... because MWorldStates store actual network entities.
+        // but there are really two kinds of network entites: the ones in the game and the ones used in state snapshots.
+        // the pure-data, state entities should be another class (which already exists and whose name is SendData?)
+        // MPuppetMaster came into existence largely in order to avoid having the state type entities create their own PlayerAvatars
+        // PuppetMaster helped in this because it provided a way for in game states to get actual puppets (Player Avatars), sort of lazily,
+        // and state type entities never ask for their actual puppets (they just use their PlaceholderPuppets).
+        // PROPOSAL: SendData should be stored in the world state snapshots?
     }
 
     private get boundsRadius() : number { return 1.0; } 
@@ -372,7 +430,7 @@ export class MPlayerAvatar implements Puppet
             }
             return this.mesh.position.clone();
 
-        }
+        } 
 
         this.debugRayHelper.show(this.mesh.getScene(), Color3.Green());
         return pos.clone();
@@ -442,6 +500,10 @@ export class MPlayerAvatar implements Puppet
         if(!MUtils.VecContainsNan(ct.interpData.position)) {
             this.mesh.position.copyFrom(ct.interpData.position);
         }
+
+        if(!MUtils.VecContainsNan(ct.interpData.rotation)) {
+            this.mesh.rotation.copyFrom(ct.interpData.rotation);
+        }
     }
 
     applyNetworkEntityUpdate(ct : CliTarget) : void
@@ -454,7 +516,6 @@ export class MPlayerAvatar implements Puppet
         this.cliTarget.interpData.position.copyFrom(pos);
         this.lastCliTarget.interpData.position.copyFrom(pos);
         this.mesh.position.copyFrom(pos);
-        console.log(`ava telep ${pos}`);
     }
 
 
@@ -494,11 +555,12 @@ export class MPlayerAvatar implements Puppet
         return id;
     }
 
-    // server
+    // server 
     applyCommandServerSide(cmd : CliCommand) : void
     {
         // CONSIDER: could update cli target in place for gc smoothing
         let target = this.makeNextTargetWithCollisions(cmd);
+        target.interpData.rotation = cmd.rotation.clone();
 
         // for now blind acceptance
         target.interpData.position.y = cmd.claimY;
@@ -512,6 +574,10 @@ export class MPlayerAvatar implements Puppet
         // and we don't have to instantiate a new interpData in getInterpData() ? 
 
         this.mesh.position.copyFrom(target.interpData.position);
+
+        // would need quaternions if using physics
+        //this.mesh.rotationQuaternion = Quaternion.RotationYawPitchRoll(target.interpData.rotation.x, target.interpData.rotation.y, target.interpData.rotation.z);
+        this.mesh.rotation.copyFrom(target.interpData.rotation);
     } 
 
     private debugJumpRepeatedly : boolean = false;
@@ -570,6 +636,7 @@ export class MPlayerAvatar implements Puppet
     {
         let now = +new Date();
         let lerper = MUtils.GetSliderNumber(this.lastCliTarget.timestamp, this.cliTarget.timestamp, now);
+        lerper = MUtils.Clamp01(lerper);
         let l = CliTarget.Lerp(this.lastCliTarget, this.cliTarget, lerper);
         // this.moveToPosWithRayCollisions(l.position);
         this.mesh.position.copyFrom(l.interpData.position);

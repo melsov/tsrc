@@ -1,4 +1,4 @@
-import { Vector3, Ray, Camera, Matrix } from "babylonjs";
+import { Vector3, Ray, Camera, Matrix, Color3 } from "babylonjs";
 import { BHelpers } from "../MBabHelpers";
 
 export namespace MUtils 
@@ -41,9 +41,10 @@ export namespace MUtils
         return (isNaN(v.x) || isNaN(v.y) || isNaN(v.z));
     }
 
-    export function CopyXZInPlace(from : Vector3, to : Vector3) : void
+
+    export function CopyXZInPlace(to : Vector3, from : Vector3) : void
     {
-        from.x = to.x; from.z = to.z;
+        to.x = from.x; to.z = from.z;
     }
 
     //
@@ -110,6 +111,21 @@ export namespace MUtils
             hash |= 0; // Convert to 32bit integer
         }
         return hash;
+    }
+
+    export function Clamp(t : number, min : number, max : number) : number
+    {
+        return Math.max(min, Math.min(t, max));
+    }
+
+    export function Clamp01(t : number) { return Clamp(t, 0, 1); }
+
+    export function RandomBrightColor() : Color3 
+    {
+        let c = Color3.Random();
+        // TODO: use HSV instead
+       
+        return c;
     }
 
 }

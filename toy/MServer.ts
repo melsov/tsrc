@@ -12,18 +12,28 @@ import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
 import { MPlayerAvatar, MAX_HEALTH } from "./bab/MPlayerAvatar";
-import { MProjectileHitInfo } from "./MProjectileHitInfo";
+import { MProjectileHitInfo } from "./bab/NetworkEntity/transient/MProjectileHitInfo";
 import { MTickTimer } from "./Util/MTickTimer";
 import { MPingGauge } from "./ping/MPingGauge";
 import { tfirebase, RemotePlayer } from "../MPlayer";
 import {  MAnnounce } from "./bab/MAnnouncement";
 import { MConfirmableMessageBook, MAnnouncement, MAbstractConfirmableMessage, MPlayerReentry, MExitDeath } from "./helpers/MConfirmableMessage";
+import { LagQueue } from "./helpers/LagQueue";
+import { Mel } from "./html-gui/LobbyUI";
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
-export const ServerSimulateTickMillis : number = 90;
-export const ServerBroadcastTickMillis : number = 200;
+export const ServerSimulateTickMillis : number = 10;
+export const ServerBroadcastTickMillis : number = 20;
 const ServerRecalcPingTickMillis : number = 800;
+
+const CLOSE_BY_RELEVANT_RADIUS : number = 4; // silly small for testing
+
+export enum Relevancy
+{
+    NOT_RELEVANT = 0,
+    RECENTLY_RELEVANT = 20
+}
 
 //
 // Encapsulate objects needed per client
@@ -37,6 +47,7 @@ class CliEntity
     public confirmableMessageBook : MConfirmableMessageBook = new MConfirmableMessageBook();
 
     public loadOut : Nullable<MLoadOut> = null;
+    public readonly relevantBook : Collections.Dictionary<string, number> = new Collections.Dictionary<string, number>();
 
     constructor(
         public remotePlayer : RemotePlayer
@@ -93,7 +104,8 @@ export class MServer
 
     private puppetMaster : MPuppetMaster;
 
-    private cmdQueue : Collections.Queue<QueuedCliCommand> = new Collections.Queue<QueuedCliCommand>();
+    private cmdQueue : LagQueue<QueuedCliCommand> = new LagQueue<QueuedCliCommand>(LAG_MS_FAKE);
+    // private cmdQueue : Collections.Queue<QueuedCliCommand> = new Collections.Queue<QueuedCliCommand>();
 
     private simulateTimer : MTickTimer = new MTickTimer(ServerSimulateTickMillis);
     private broadcastTimer : MTickTimer = new MTickTimer(ServerBroadcastTickMillis);
@@ -101,10 +113,15 @@ export class MServer
 
     private confirmableBroadcasts : Array<MAbstractConfirmableMessage> = new Array<MAbstractConfirmableMessage>();
 
+    private lobbyUI : Mel.LobbyUI = new Mel.LobbyUI(); // only for hiding the UI in debug mode
+    
+
     constructor()
     {
         this.game.init();
         this.puppetMaster = new MPuppetMaster(this.game.scene);
+
+        this.lobbyUI.showHide(false);
     }
 
     // TODO: mechanism for allowing player to get a load out and agree to enter the game
@@ -224,7 +241,7 @@ export class MServer
                 playerEnt.applyCliCommandServerSide(qcmd.cmd);
                 this.handleFire(playerEnt, qcmd.cmd);
 
-                // fake decre health
+                // fake decrement health
                 if(qcmd.cmd.debugTriggerKey) {
                     playerEnt.health--;
                     if(playerEnt.health === 0) {
@@ -271,9 +288,10 @@ export class MServer
                     this.confirmableBroadcasts.push(new MAnnouncement(`Welcome ${qcmd.UID}!`));
 
                     cli.loadOut = qcmd.cmd.loadOutRequest;
-                    if(playerEnt !== undefined) // which it really shouldn't
+                    if(playerEnt !== undefined) 
                     {
                         playerEnt.health = MAX_HEALTH;
+                        playerEnt.playerPuppet.customize(qcmd.cmd.loadOutRequest);
                         playerEnt.teleport(spawnPos);
                     }
                 }
@@ -289,23 +307,23 @@ export class MServer
 
     private debugPutShadowsInRewindState() : void
     {
-        //get player 1
-        let first = this.currentState.lookup.getValue(this.currentState.lookup.keys()[0]);
-        if(first == undefined) return;
+        // //get player 1
+        // let first = this.currentState.lookup.getValue(this.currentState.lookup.keys()[0]);
+        // if(first == undefined) return;
 
-        if(!this.rewindState(this.currentState, <MNetworkPlayerEntity>first)) {
-            console.log(`failed to rewind for : ${first.netId}`);
-            return;
-        }
+        // if(!this.rewindState(this.currentState, <MNetworkPlayerEntity>first)) {
+        //     console.log(`failed to rewind for : ${first.netId}`);
+        //     return;
+        // }
 
-        this.currentState.lookup.forEach((key: string, ent : MNetworkEntity) => {
-            let plent = ent.getPlayerEntity();
-            if(plent != null && plent.shadow != null) {
-                plent.shadow.position = plent.position.clone();
-            }
-        });
+        // this.currentState.lookup.forEach((key: string, ent : MNetworkEntity) => {
+        //     let plent = ent.getPlayerEntity();
+        //     if(plent != null && plent.shadow != null) {
+        //         plent.shadow.position = plent.position.clone();
+        //     }
+        // });
 
-        this.revertStateToPresent(this.currentState);
+        // this.revertStateToPresent(this.currentState);
     }
 
     private DebugGetAnotherPlayer(player : MNetworkPlayerEntity) : Nullable<MNetworkPlayerEntity>
@@ -330,29 +348,29 @@ export class MServer
     }
  
 
-    private playerFromShadow(shad : AbstractMesh) : Nullable<MNetworkPlayerEntity>
-    {
-        let keys = this.currentState.lookup.keys();
-        for(let i=0; i< keys.length; ++i)
-        {
-            let ent = <MNetworkEntity> this.currentState.lookup.getValue(keys[i]);
-        // this.currentState.lookup.forEach((uid, ent) => {
-            let plent = ent.getPlayerEntity();
+    // private playerFromShadow(shad : AbstractMesh) : Nullable<MNetworkPlayerEntity>
+    // {
+    //     let keys = this.currentState.lookup.keys();
+    //     for(let i=0; i< keys.length; ++i)
+    //     {
+    //         let ent = <MNetworkEntity> this.currentState.lookup.getValue(keys[i]);
+    //     // this.currentState.lookup.forEach((uid, ent) => {
+    //         let plent = ent.getPlayerEntity();
 
-            if(plent) console.log(`plent is ${plent.netId}`);
-            else console.log(`null plent? ${ent.netId}`);
+    //         if(plent) console.log(`plent is ${plent.netId}`);
+    //         else console.log(`null plent? ${ent.netId}`);
 
-            if(plent && plent.shadow) {
-                if(plent.shadow.name === shad.name) { return plent; }
-                else { console.log(`names neq: ${plent.shadow.name} != ${shad.name}`); }
-            }
-            else if(plent) {console.log(`null shadow ? ${plent.netId}`);}
-            else { console.log(`null plent?? we shouldn't get here? ${ent.netId}`);}
+    //         if(plent && plent.shadow) {
+    //             if(plent.shadow.name === shad.name) { return plent; }
+    //             else { console.log(`names neq: ${plent.shadow.name} != ${shad.name}`); }
+    //         }
+    //         else if(plent) {console.log(`null shadow ? ${plent.netId}`);}
+    //         else { console.log(`null plent?? we shouldn't get here? ${ent.netId}`);}
 
-        } //);
-        console.log(`return null player from shadow`);
-        return null;
-    }
+    //     } //);
+    //     console.log(`return null player from shadow`);
+    //     return null;
+    // }
 
     // rewind time for all players (except the firer) (who should be in the latest place, per latest commands)
     private handleFire(firingPlayer : MNetworkPlayerEntity, cliCommand : CliCommand) : void
@@ -370,6 +388,8 @@ export class MServer
         // other.teleport(firingPlayer.position.add(new Vector3(4, 0, 0)));
 
 
+        // TODO: correct loadouts in other cli's view
+
         // TODO: devise a test to know when what is really being ray cast and where
         // shadows are looking like a pretty good option atm.
 
@@ -377,26 +397,37 @@ export class MServer
         // maybe go back to the raycast playground and try more tests
 
 
-        // render the scene here so that the rewound position registers before raycasting
+        // render the scene here. Seems needed to get the rewound position to register before raycasting
         this.game.scene.render();
 
         let pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.forward);
 
-        if(pickingInfo) console.log(`got fire ${(pickingInfo.pickedMesh ? pickingInfo.pickedMesh.name : 'null mesh?')}`); // DBUG
-        else console.log(`fire missed`);
+        let debugFireStr = "";
+        if(pickingInfo) {
+            debugFireStr = pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray ? " will hit: " : `won't hit `;
+             debugFireStr += `${firingPlayer.netId} shot at ${(pickingInfo.pickedMesh ? pickingInfo.pickedMesh.name : 'null mesh? ')}`;
+             debugFireStr += ` hit ${pickingInfo.hit}`;
+             debugFireStr += pickingInfo.ray === null ? ' null ray ' : ' yes ray ';
+        }
+        else debugFireStr = `fire missed`;
+        
 
         if(pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray)
         {
+
             let tgs = <string | null> Tags.GetTags(pickingInfo.pickedMesh);
-            if(tgs && tgs.indexOf(GameEntityTags.Shadow) >= 0) 
+            debugFireStr += `. tags: ${tgs}`;
+            if(tgs && tgs.indexOf(GameEntityTags.PlayerObject) >= 0) 
             {
                 // maybe will need: a way of hitting objects attached to player (whose names are not identical to netId for player)
-                let hitPlayer = this.playerFromShadow(pickingInfo.pickedMesh); // <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(netIdLookup);
-                if(hitPlayer != undefined && hitPlayer != null) {
+                let hitPlayer = <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(pickingInfo.pickedMesh.name);
+                if(hitPlayer != undefined && hitPlayer != null) 
+                {
                     let netIdLookup = hitPlayer.netId; // pickingInfo.pickedMesh.name; // for now
                     let prInfo = new MProjectileHitInfo(netIdLookup, firingPlayer.playerPuppet.currentProjectileType, pickingInfo.ray, 3);
                     let beforeHealth = hitPlayer.health;
                     hitPlayer.getHitByProjectile(prInfo);
+                    debugFireStr += ` ${hitPlayer.netId} got hit`;
 
                     // became dead?
                     if(beforeHealth > 0 && hitPlayer.health <= 0) {
@@ -420,8 +451,11 @@ export class MServer
 
         this.revertStateToPresent(this.currentState);
 
-        // debug restore other
-        // other.teleport(origPos);
+        //DEBUG
+        console.log(debugFireStr);
+        this.confirmableBroadcasts.push(new MAnnouncement(debugFireStr));
+        //END DEBUG
+
     }
 
     private findClient(netId : string) : Nullable<CliEntity>
@@ -496,7 +530,7 @@ export class MServer
 
         this.debugHud.show(str);
     }
-    
+     
     // shift an old state out of the state buffer, if buffer is max len
     // create a new MWorldState and push it to the state buffer
     // clone the current state to the new state
@@ -541,14 +575,17 @@ export class MServer
                     cliDif > this.stateBuffer.length || // too far behind?
                     cli.lastProcessedInput === 0)  // never ack'd?
                 {
-                    let state = this.stateBuffer[this.stateBuffer.length - 1];
+                    let state = this.stateBuffer[this.stateBuffer.length - 1]
+                        .relevancyShallowClone(<MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user), this.game.scene, cli.relevantBook, CLOSE_BY_RELEVANT_RADIUS);
                     let su = new ServerUpdate(state, cli.lastProcessedInput);  
 
-                    //TODO: convert Server Update to 'any'
+                    // TODO: convert Server Update to 'any'
                     // so that we can decline to add properties that we don't need
 
+                    // send confirmable messages
                     cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
                     su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages(); // this.confirmableMessages;
+
                     cli.remotePlayer.peer.send(PackWorldState(su));
                 }
                 else 

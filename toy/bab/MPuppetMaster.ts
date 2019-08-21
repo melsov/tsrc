@@ -14,10 +14,21 @@ export interface Puppet
 
     getInterpData() : InterpData;
     setInterpData(id : InterpData) : void;
+    getBoundsCorners() : Vector3[];
 }
 
 export class PlaceholderPuppet implements Puppet
 {
+    getBoundsCorners(): Vector3[] {
+        let corners = new Array<Vector3>();
+        let position = this.interpData.position;
+        let ellipsoid = Vector3.One();
+        corners.push(position.clone());
+        corners.push(position.add(ellipsoid.scale(.4)));
+        corners.push(position.add(ellipsoid.scale(-.4)));
+        return corners;
+    }
+    
     applyNetEntityUpdateIngoreCollisions(ent : CliTarget) : void {}
     applyNetworkEntityUpdate(ent: CliTarget): void {  }
     customize(skin: MLoadOut): void { }
@@ -30,24 +41,24 @@ export class PlaceholderPuppet implements Puppet
 
 export class MLoadOut
 {
+    
     public static GetHash(lo : MLoadOut) { return MUtils.StringToHash(JSON.stringify(lo)); }
 
-    color : Color3 = Color3.Teal();
-
-
+    color : Color3 = Color3.Blue();
 
     public static DebugCreateLoadout(index : number) : MLoadOut
     {
         let loadOut = new MLoadOut();
-        switch(index){
-            case 0:
-                loadOut.color = Color3.Purple();
-                break;
-            case 1:
-                loadOut.color = Color3.Yellow();
-                break;
+        loadOut.color = MUtils.RandomBrightColor();
+        // switch(index){
+        //     case 0:
+        //         loadOut.color = Color3.Purple();
+        //         break;
+        //     case 1:
+        //         loadOut.color = Color3.Yellow();
+        //         break;
 
-        }
+        // }
         return loadOut;
     }
 }

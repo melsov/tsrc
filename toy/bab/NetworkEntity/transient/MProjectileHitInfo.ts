@@ -1,5 +1,5 @@
 import { Ray } from "babylonjs";
-import { MUtils, JHelpers } from "./Util/MUtils";
+import { MUtils, JHelpers } from "../../../Util/MUtils";
 
 export enum ProjectileType
 {
@@ -34,3 +34,4 @@ export class MProjectileHitInfo
             js.damage);
     }
 }
+

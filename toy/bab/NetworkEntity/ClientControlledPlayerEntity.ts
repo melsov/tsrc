@@ -34,12 +34,12 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
         this.health = ent.health;
         this.statusHUD.update();
 
-
         // pinch cli targets
-        MUtils.CopyXZInPlace(ent.position, this.playerPuppet.cliTarget.interpData.position); // cli player controls their own y (this is insane?)
+        MUtils.CopyXZInPlace(this.playerPuppet.cliTarget.interpData.position, ent.position); // cli player controls their own y (this is insane?)
         // this.playerPuppet.cliTarget.interpData.position.copyFrom(ent.position);
 
         this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
+
     }
 
     public renderTick(dt : number)

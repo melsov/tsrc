@@ -1,4 +1,4 @@
-import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera, PickingInfo, PointerEventTypes } from 'babylonjs';
+import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera, PickingInfo, PointerEventTypes, SpriteManager, Sprite, StandardMaterial, BaseTexture, Texture } from 'babylonjs';
 import { GridMaterial } from 'babylonjs-materials';
 import * as Gui from 'babylonjs-gui';
 
@@ -23,6 +23,7 @@ export class GameEntityTags
     public static readonly PlayerObject = "PlayerObject";
     public static readonly MousePickPlane = "MousePickPlane";
     public static readonly Shadow = "Shadow";
+    public static readonly InvisibleToRaycasts = "InvisToRaycasts";
 
     public static HasTag(oo : object, tag : string) : boolean
     {
@@ -100,16 +101,39 @@ export class GameMain
         this.clearColor = typeOfTestGame === TypeOfGame.Server ? Color4.FromHexString('#441647FF') : Color4.FromHexString('#181647FF');
         this.scene.clearColor = this.clearColor;
 
-        SceneLoader.ImportMesh( null, './models/', 'city.babylon', this.scene, (meshes, particleSystems, animationGroups) => {
+        // this.importSene(); 
+        
+        this.makeBoxWalls();
+        
+        // this.makeMousePickPlane();
+
+        this.setupCrosshairs();
+    }
+    
+    private importSene() : void  
+    {
+        SceneLoader.ImportMesh( null, './models/', 'relevant.babylon', this.scene, (meshes, particleSystems, animationGroups) => {
             meshes.forEach((m) => {
                 Tags.AddTagsTo(m, GameEntityTags.Terrain);
             });
         });
+    }
 
-        this.makeBoxWalls();
-        
-        this.makeMousePickPlane();
+    private setupCrosshairs() : void 
+    {
+        // maybe use bab gui ? // this plane can go into
+        let chplane = MeshBuilder.CreatePlane("chplane", {
+            size : 1
+        }, this.scene);
 
+        let chmat = new StandardMaterial('chmat', this.scene);
+        chmat.diffuseTexture = new Texture("./images/crosshair.png", this.scene);
+        chmat.diffuseTexture.hasAlpha = true;
+        chmat.backFaceCulling = false;
+        chplane.material = chmat;
+
+        chplane.parent = this.camera;
+        chplane.setPositionWithLocalVector(new Vector3(0, 0, 2.1));
     }
 
 
@@ -144,14 +168,14 @@ export class GameMain
     private makeBoxWalls() : void
     {
         let long = 15;
-        let h = 2;
+        let h = 6;
         let shrt = 2;
 
         let out = long / 2.0;
         let vx = new Vector3(1, 0, 0);
         let vz = new Vector3(0, 0, 1);
 
-        for(let i=0; i<4;++i)
+        for(let i=0; i<2;++i)
         {
             let ww = long; let dd = shrt;
             let pos = vz.clone();
@@ -182,9 +206,9 @@ export class GameMain
         }
 
         let floor = MeshBuilder.CreateBox('box-floor', {
-            width : long,
+            width : long * 2,
             height : h,
-            depth : long
+            depth : long * 2
         }, this.scene);
         floor.position = new Vector3(0, -h, 0);
         Tags.AddTagsTo(floor, GameEntityTags.Terrain);
