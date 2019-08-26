@@ -138,7 +138,6 @@ export class ConfirmableMessageOrganizer
         while(arr.length > 0){
             let cm = arr[0]; //.shift();
             arr.shift();
-            console.log(`get hash of : ${JSON.stringify(cm)}`);
             this.hashes.push(cm.hashcode());
             result.push(cm);
         }

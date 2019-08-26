@@ -1,6 +1,7 @@
-import  { Engine,  Scene, Vector3, FreeCamera, HemisphericLight, Mesh, TransformNode, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera, PickingInfo, PointerEventTypes, SpriteManager, Sprite, StandardMaterial, BaseTexture, Texture } from 'babylonjs';
+import { Engine,  Scene, Vector3, HemisphericLight, SceneLoader, MeshBuilder, Color4, Color3, Tags, UniversalCamera, StandardMaterial, Texture } from 'babylonjs';
 import { GridMaterial } from 'babylonjs-materials';
 import * as Gui from 'babylonjs-gui';
+import { MLoader } from './bab/MAssetBook';
 
 //import * as wrtc from './WebRTCConnection';
 //import {RoomAgent} from './RoomAgent';
@@ -11,9 +12,9 @@ import * as Gui from 'babylonjs-gui';
 //import { LocalPlayer, tfirebase } from './MPlayer';
 
 //export const g_render_canvas_id : string = "renderCanvas";
-const g_render_canvas_server_id : string = "render-canvas-server";
-const g_render_canvas_client_id_a : string = "render-canvas-client-a";
-const g_render_canvas_client_id_b : string = "render-canvas-client-b";
+export const g_render_canvas_server_id : string = "render-canvas-server";
+export const g_render_canvas_client_id_a : string = "render-canvas-client-a";
+export const g_render_canvas_client_id_b : string = "render-canvas-client-b";
 
 export const g_main_camera_name : string = "main-camera";
 
@@ -42,18 +43,21 @@ export enum TypeOfGame
 export class GameMain
 {
     // Get the canvas element from the DOM.
-    public readonly canvas : HTMLCanvasElement;
+    // public readonly canvas : HTMLCanvasElement;
+    public get canvas() : HTMLCanvasElement { return this.mapPackage.canvas; }
 
     // Associate a Babylon Engine to it.
-    public readonly engine : Engine; // = new Engine(canvas);
+    // public readonly engine : Engine; 
+    public get engine() : Engine { return this.mapPackage.engine; }
 
     // Create our first scene.
-    public scene : Scene; // = new Scene(engine);
+    // public scene : Scene;
+    public get scene() : Scene { return this.mapPackage.scene; }
 
     // This creates and positions a free camera (non-mesh)
     public readonly camera : UniversalCamera; // = new FreeCamera("camera1", new Vector3(0, 5, -10), scene);
 
-    //public readonly playerRoot : TransformNode;
+    
 
     private shouldRenderDEBUG : boolean = true;
     stopRenderLoop() : void { this.shouldRenderDEBUG = false; }
@@ -65,14 +69,10 @@ export class GameMain
     clearColor : Color4;
 
     constructor(
-        public readonly typeOfTestGame : TypeOfGame
+        //public readonly typeOfTestGame : TypeOfGame,
+        public readonly mapPackage : MLoader.MapPackage
         )
     {
-        console.log(`constructor GameMain ${typeOfTestGame}`);
-        this.canvas = <HTMLCanvasElement> document.getElementById( typeOfTestGame == TypeOfGame.Server ? g_render_canvas_server_id : 
-            (typeOfTestGame == TypeOfGame.ClientA ? g_render_canvas_client_id_a : g_render_canvas_client_id_b));
-        this.engine = new Engine(this.canvas); //TODO: if isServer run headless
-        this.scene = new Scene(this.engine);
         this.camera = new UniversalCamera(g_main_camera_name, new Vector3(0, 23, -.01), this.scene);
         // we plan to move the camera manually
         // because we don't want to have to mimic its 
@@ -86,7 +86,7 @@ export class GameMain
         //     this.setupPointerLocking();
 
         // This targets the camera to scene origin
-        if(typeOfTestGame === TypeOfGame.Server)
+        if(mapPackage.typeOfGame === TypeOfGame.Server)
             this.camera.setTarget(Vector3.Zero());
         
         // This attaches the camera to the canvas
@@ -98,7 +98,7 @@ export class GameMain
         // Default intensity is 1. Let's dim the light a small amount
         light.intensity = 0.7;
 
-        this.clearColor = typeOfTestGame === TypeOfGame.Server ? Color4.FromHexString('#441647FF') : Color4.FromHexString('#181647FF');
+        this.clearColor = mapPackage.typeOfGame === TypeOfGame.Server ? Color4.FromHexString('#441647FF') : Color4.FromHexString('#181647FF');
         this.scene.clearColor = this.clearColor;
 
         // this.importSene(); 
@@ -109,7 +109,7 @@ export class GameMain
 
         this.setupCrosshairs();
     }
-    
+     
     private importSene() : void  
     {
         SceneLoader.ImportMesh( null, './models/', 'relevant.babylon', this.scene, (meshes, particleSystems, animationGroups) => {

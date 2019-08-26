@@ -9,6 +9,8 @@ import { MFlopbackTimer } from "../helpers/MFlopbackTimer";
 import { CliCommand } from "./MPlayerInput";
 import { ServerSimulateTickMillis } from "../MServer";
 import { MJumpCurve, JumpState } from "../helpers/MCurve";
+import { MAudio } from "../manager/MAudioManager";
+import { WeaponMeshImport, MHandGun } from "./NetworkEntity/weapon/MWeapon";
 
 const physicsNudgeDist : number = .01;
 const collisionBlockMargin : number = .2; // large for debug
@@ -81,6 +83,13 @@ export class MPlayerAvatar implements Puppet
         for(let i=0; i < this.headFeetCheckRays.length; ++i) { this.headFeetCheckRays[i] = new Ray(new Vector3(), new Vector3(), clearance * 3.1); } // debug shoudl be 1.1 not 5.1
 
         //this.makeNoseMesh();
+
+        // TODO: if we're the cli owned player. attach to the camera
+        WeaponMeshImport.CreateWeaponLazyLoadMeshSet(WeaponMeshImport.files.handgun, _scene, MHandGun, (weap) => {
+            weap.meshSet.main.parent = this.mesh;
+            weap.meshSet.main.setPositionWithLocalVector(new Vector3(-1, 0, 2));
+        });
+        
     }
 
     private importCharacter(_name : string, _scene : Scene, _pos : Vector3) : void
@@ -599,6 +608,11 @@ export class MPlayerAvatar implements Puppet
         this.lastCliTarget.copyFrom(this.cliTarget);
         let next = this.makeNextTargetWithCollisions(cmd);
         this.cliTarget.copyFrom(next);
+    }
+
+    animateFire() : void 
+    {
+        MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.Fire, this.mesh.position);
     }
 
     // todo: get a pos adjusted for collisions

@@ -106,8 +106,8 @@ export class ListenServerRoomAgent
             else { 
                 this.user.isServer = false; 
             }
-            
             return count + 1;
+
         }).then(() => {
             // set user again (now with isServer)
             this.userDBRef.set(this.user, (err : Error | null) => { if(err) console.log(`${err}`); return null; })
@@ -121,64 +121,64 @@ export class ListenServerRoomAgent
                     //clean up if we are the last one out of the room
                     if(snap.val() == 0) {
                         firebase.database().ref(this.roomCountRef).remove();
-                }
-            });
-
-            const addPeer = (rUserConfig : tfirebase.User) => { 
-                console.log(`remote user config: ${rUserConfig.displayName} color: ${rUserConfig.color}`);
-
-                // init an MSPeerConnection between us and them
-                var peer = new MSPeerConnection(this.user, rUserConfig.UID, this.messageBoothRef);
-
-                var other = new RemotePlayer(peer, rUserConfig);
-                var len : number = this.others.push(other); 
-
-                this.others[len - 1].peer.SendChanStateChangedCallback = (rs : RTCDataChannelState, _peer : MSPeerConnection) => {
-                    console.log("RoomAgent: Send state is now: " + rs.toString());
-                    if(rs == "open") {
-                        //this.others[len - 1].peer.send("hi hi " + len);
-                        this.readyOthers.push(this.others[len - 1]);
-
-                        console.log("***** about to send on chann open");
-                        this.onChannelOpened(this.others[len - 1]);
                     }
-                    else if(rs == "closing" || rs == "closed") 
-                    {
-                        //remove from readyOthers 
-                        let i = this.findReadyIndex(other.user.UID);
-                        if(i >= 0){
-                            // this.readyOthers[i].cleanup();
-                            this.onChannelClosed(this.readyOthers[i]);
-                            this.readyOthers.splice(i,1);
+                });
+
+                const addPeer = (rUserConfig : tfirebase.User) => { 
+                    console.log(`remote user config: ${rUserConfig.displayName} color: ${rUserConfig.color}`);
+
+                    // init an MSPeerConnection between us and them
+                    var peer = new MSPeerConnection(this.user, rUserConfig.UID, this.messageBoothRef);
+
+                    var other = new RemotePlayer(peer, rUserConfig);
+                    var len : number = this.others.push(other); 
+
+                    this.others[len - 1].peer.SendChanStateChangedCallback = (rs : RTCDataChannelState, _peer : MSPeerConnection) => {
+                        console.log("RoomAgent: Send state is now: " + rs.toString());
+                        if(rs == "open") {
+                            //this.others[len - 1].peer.send("hi hi " + len);
+                            this.readyOthers.push(this.others[len - 1]);
+
+                            console.log("***** about to send on chann open");
+                            this.onChannelOpened(this.others[len - 1]);
                         }
-                        console.log("found disconnector (Send chnnl) at: "+i+". rOthers len now: " + this.readyOthers.length);
-                        this.readyOthers.forEach((other) => {
-                            console.log(other.user.UID);
-                        });
-                    }
-                    this.debugUpdateReadyOthersDisplay();
-                };
-
-                this.others[len - 1].peer.ReceiveChanStateChangedCallback = (rs : RTCDataChannelState, _peer : MSPeerConnection) => {
-                    console.log("Receive state is now: " + rs.toString());
-                    if(_peer != null)
-                    {
-                        if(rs == "closed" || rs == "closing")
+                        else if(rs == "closing" || rs == "closed") 
                         {
-                            let i = this.findReadyIndex(_peer.user.UID);
-                            if(i >= 0) {
+                            //remove from readyOthers 
+                            let i = this.findReadyIndex(other.user.UID);
+                            if(i >= 0){
                                 // this.readyOthers[i].cleanup();
                                 this.onChannelClosed(this.readyOthers[i]);
-                                this.readyOthers.splice(i, 1);
+                                this.readyOthers.splice(i,1);
                             }
-                            console.log("found disconnector (Rece chnnl) at: "+i+". rOthers len now: " + this.readyOthers.length);
+                            console.log("found disconnector (Send chnnl) at: "+i+". rOthers len now: " + this.readyOthers.length);
+                            this.readyOthers.forEach((other) => {
+                                console.log(other.user.UID);
+                            });
                         }
-                    }
-                    this.debugUpdateReadyOthersDisplay();
-                };
+                        this.debugUpdateReadyOthersDisplay();
+                    };
 
-                return len - 1;
-            }; // END ADD_PEER
+                    this.others[len - 1].peer.ReceiveChanStateChangedCallback = (rs : RTCDataChannelState, _peer : MSPeerConnection) => {
+                        console.log("Receive state is now: " + rs.toString());
+                        if(_peer != null)
+                        {
+                            if(rs == "closed" || rs == "closing")
+                            {
+                                let i = this.findReadyIndex(_peer.user.UID);
+                                if(i >= 0) {
+                                    // this.readyOthers[i].cleanup();
+                                    this.onChannelClosed(this.readyOthers[i]);
+                                    this.readyOthers.splice(i, 1);
+                                }
+                                console.log("found disconnector (Rece chnnl) at: "+i+". rOthers len now: " + this.readyOthers.length);
+                            }
+                        }
+                        this.debugUpdateReadyOthersDisplay();
+                    };
+
+                    return len - 1;
+                }; // END ADD_PEER
 
             // say 'hi' to the server, if we're not the server: 
             // foreach player listed under players
@@ -232,7 +232,7 @@ export class ListenServerRoomAgent
                 console.log(`on child_removed. removed player? ${i}. `);
             });
 
-        return null;
+            return null;
         }); // end of set isServer
     }); // end of count transaction .then()
 

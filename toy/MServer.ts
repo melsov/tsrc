@@ -20,6 +20,7 @@ import {  MAnnounce } from "./bab/MAnnouncement";
 import { MConfirmableMessageBook, MAnnouncement, MAbstractConfirmableMessage, MPlayerReentry, MExitDeath } from "./helpers/MConfirmableMessage";
 import { LagQueue } from "./helpers/LagQueue";
 import { Mel } from "./html-gui/LobbyUI";
+import { MAudio } from "./manager/MAudioManager";
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
@@ -27,7 +28,8 @@ export const ServerSimulateTickMillis : number = 10;
 export const ServerBroadcastTickMillis : number = 20;
 const ServerRecalcPingTickMillis : number = 800;
 
-const CLOSE_BY_RELEVANT_RADIUS : number = 4; // silly small for testing
+export const CLOSE_BY_RELEVANT_RADIUS : number = 4; // silly small for testing
+export const AUDIBLE_RADIUS : number = CLOSE_BY_RELEVANT_RADIUS;
 
 export enum Relevancy
 {
@@ -98,7 +100,7 @@ export class MServer
     // private clients : Collections.Dictionary<tfirebase.User, CliEntity> = new Collections.Dictionary<tfirebase.User, CliEntity>(tfirebase.StringForUser);
     private clients : Collections.Dictionary<string, CliEntity> = new Collections.Dictionary<string, CliEntity>();
 
-    private game : GameMain = new GameMain(TypeOfGame.Server);
+    // = new GameMain(TypeOfGame.Server);
 
     getGameMain() : GameMain { return this.game; }
 
@@ -116,7 +118,9 @@ export class MServer
     private lobbyUI : Mel.LobbyUI = new Mel.LobbyUI(); // only for hiding the UI in debug mode
     
 
-    constructor()
+    constructor(
+        private game : GameMain
+    )
     {
         this.game.init();
         this.puppetMaster = new MPuppetMaster(this.game.scene);
@@ -377,6 +381,8 @@ export class MServer
     {
         if(!cliCommand.fire) return;
  
+        firingPlayer.recordWeaponFired();
+
         if(!this.rewindState(this.currentState, firingPlayer)) { 
             console.log(`rewind failed`);
             return; 

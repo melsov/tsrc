@@ -10,6 +10,8 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
 
     protected statusHUD : MStatusHUD;
 
+    protected isClientControlledPlayer() : boolean { return true; }
+
     constructor(
         public _netId : string, 
         pos ? : Vector3) 
@@ -25,6 +27,17 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     public applyCliCommand(cliCommand : CliCommand) : void
     {
         this.playerPuppet.pushCliTargetWithCommand(cliCommand);
+
+    }
+    
+    createImmediateEffectsFromInput(cliCommand : CliCommand) : void
+    {
+        if(cliCommand.fire) {
+            //TODO: if has ammo
+            console.log(`will animate fire`);
+            this.playerPuppet.animateFire();
+        }
+
     }
 
     public apply(ent : MNetworkPlayerEntity) : void
@@ -35,7 +48,7 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
         this.statusHUD.update();
 
         // pinch cli targets
-        MUtils.CopyXZInPlace(this.playerPuppet.cliTarget.interpData.position, ent.position); // cli player controls their own y (this is insane?)
+        MUtils.CopyXZInPlace(this.playerPuppet.cliTarget.interpData.position, ent.position); // cli player controls their own y (this is dicey?)
         // this.playerPuppet.cliTarget.interpData.position.copyFrom(ent.position);
 
         this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);

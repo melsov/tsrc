@@ -7,7 +7,7 @@ import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
-import { Color3, Vector3 } from "babylonjs";
+import { Color3, Vector3, AssetsManager, MeshAssetTask } from "babylonjs";
 import { MPlayerAvatar } from "./bab/MPlayerAvatar";
 import { CheckboxUI } from "./html-gui/CheckboxUI";
 import { MUtils } from "./Util/MUtils";
@@ -22,6 +22,8 @@ import { ConfirmableMessageOrganizer, ConfirmableType, MAnnouncement, MPlayerRee
 import { LifeStage, StageType } from "./MLifeCycle";
 import { Mel } from "./html-gui/LobbyUI";
 import { LagQueue } from "./helpers/LagQueue";
+import { MAudio } from "./manager/MAudioManager";
+import { MLoader } from "./bab/MAssetBook";
 
 
 
@@ -61,7 +63,7 @@ export class MClient
 
     private puppetMaster : MPuppetMaster;
 
-    public readonly game : GameMain;
+   
     public readonly fpsCam : FPSCam;
     private input : MPlayerInput;
     private inputSequenceNumber : number = 0;
@@ -96,35 +98,39 @@ export class MClient
 
     private requestLoadOutFunc : () => void = () => {};
 
+    private assetManager : AssetsManager;
 
     constructor(
-        //public readonly peerConnection : LaggyPeerConnection,
         public readonly user : tfirebase.User,
+        public readonly game : GameMain,
         private send : (msg : string) => void
     ) 
     {
         this.DebugClientNumber = g_howManyClientsSoFar++;
-        this.game = new GameMain(this.DebugClientNumber == 0 ? TypeOfGame.ClientA : TypeOfGame.ClientB);
+
+        this.assetManager = new AssetsManager(this.game.scene);
+        
         this.playerEntity = new ClientControlledPlayerEntity(this.user.UID); // MNetworkPlayerEntity(this.user.UID);
         this.puppetMaster = new MPuppetMaster(this.game.scene);
         this.input = new MPlayerInput(this.DebugClientNumber > 0);
         this.input.useScene(this.game.canvas, this.game.scene);
-
+        
         this.playerEntity.setupShadow(this.game.scene, this.DebugClientNumber);
         this.clientViewState.getPuppet = (ent : MNetworkEntity) => {
             return this.puppetMaster.getPuppet(ent);
         }
-
+        
         this.clientViewState.setEntity(this.user.UID, this.playerEntity);
-
+        
         MUtils.Assert(this.playerEntity.playerPuppet.mesh != undefined, "surprising");
-
+        
         //customize puppet
         let skin = MLoadOut.DebugCreateLoadout(this.DebugClientNumber);
         
         let playerPuppet = <MPlayerAvatar> this.puppetMaster.getPuppet(this.playerEntity);
         playerPuppet.customize(skin);
         playerPuppet.addDebugLinesInRenderLoop();
+        this.setupManagers();
 
         this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh);
 
@@ -145,6 +151,16 @@ export class MClient
         this.lobbyUI.handleEnterGamePressed = (ev: MouseEvent) => {
             this.handleEnterGamePressed();
         }
+
+        //TEST
+        MLoader.AssetBook.TestAssetManager(this.game.scene, (task : MeshAssetTask) => {
+            console.log(`got loader on success callback: ${task.name}`);
+        })
+    }
+
+    private setupManagers() : void 
+    {
+        MAudio.MAudioManager.SetSingleton(new MAudio.MAudioManager(this.game.scene, this.playerEntity.playerPuppet.mesh, this.game.mapPackage.assetBook));
     }
 
     public init() : void
@@ -211,7 +227,7 @@ export class MClient
         cmd.confirmHashes = this.confirmMessageOrganizer.consumeHashes();
 
         let strcmd = CommandToString(cmd);
-        console.log(`send lo req cmd: ${strcmd}`);
+        console.log(`send lo req cmd:`);
 
         this.send(strcmd);
         
@@ -234,6 +250,8 @@ export class MClient
             this.playerEntity.renderTick(this.game.engine.getDeltaTime());
             this.fpsCam.renderTick();
         }
+
+        MAudio.MAudioManager.Instance.playAny();
     }
 
     public teardown() : void 
@@ -259,6 +277,7 @@ export class MClient
         if (this.clientSidePrediction.checked)
         {
             this.playerEntity.applyCliCommand(command); // with collisions
+            this.playerEntity.createImmediateEffectsFromInput(command);
         }
 
         command.claimY = this.playerEntity.position.y;

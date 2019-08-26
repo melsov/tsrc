@@ -53,7 +53,7 @@ class InputKeys
 
 const KB_EVENT_TIMEOUT_MILLIS : number = 1500;
 
-const FIRE_RATE_MILLIS : number = 200;
+const FIRE_RATE_MILLIS : number = 1000; // slow for testing
 
 class KeySet
 {
@@ -65,18 +65,18 @@ class KeySet
 
     togglePauseDebug : string = 'q';
     debugGoWrongPlace : string = 'e';
-}
 
-function MakeAltKeySet() : KeySet
-{
-    let ks = new KeySet();
-    ks.fwd = 't';
-    ks.left = 'f';
-    ks.back = 'g';
-    ks.right = 'h';
-    ks.fire = 'b';
-    ks.togglePauseDebug = 'r';
-    return ks;
+    static MakeAltKeySet() : KeySet
+    {
+        let ks = new KeySet();
+        ks.fwd = 't';
+        ks.left = 'f';
+        ks.back = 'g';
+        ks.right = 'h';
+        ks.fire = 'b';
+        ks.togglePauseDebug = 'r';
+        return ks;
+    }
 }
 
 export class MPlayerInput
@@ -91,14 +91,14 @@ export class MPlayerInput
     private keySet : KeySet;
     public getKeySet() : KeySet { return this.keySet; }
 
-    private fireAvailable : boolean = true;
+    private debugTriggerReady : boolean = true;
     private isPointerLocked : boolean = false;
 
     public readonly rightMouseToggle : MToggle = new MToggle(false);
 
     constructor(useAltKeySet : boolean)
     {
-        if(useAltKeySet) this.keySet = MakeAltKeySet();
+        if(useAltKeySet) this.keySet = KeySet.MakeAltKeySet();
         else this.keySet = new KeySet();
     }
 
@@ -197,15 +197,16 @@ export class MPlayerInput
         cc.horizontal = (this._inputKeys.left ? -1 : (this._inputKeys.right ? 1 : 0)) * dt;
         cc.vertical = (this._inputKeys.back ? -1 : (this._inputKeys.fwd ? 1 : 0)) * dt;
         
-        cc.fire = this.fireAvailable && this._inputKeys.fire;
-        cc.debugTriggerKey = this.fireAvailable && this._inputKeys.debugGoWrongPlace;
+        cc.fire = this._inputKeys.fire;
+
+        cc.debugTriggerKey = this.debugTriggerReady && this._inputKeys.debugGoWrongPlace;
 
         if(cc.fire || cc.debugTriggerKey)
         {
-            this.fireAvailable = false;
+            this.debugTriggerReady = false;
             window.setTimeout(()=> {
-                this.fireAvailable = true;
-            }, FIRE_RATE_MILLIS);
+                this.debugTriggerReady = true;
+            }, FIRE_RATE_MILLIS); // TODO: allow weapons to handle their fire rates
         }
 
         cc.jump = this._inputKeys.jump;
@@ -220,10 +221,11 @@ export class MPlayerInput
         switch(ev.button)
         {
             case 0: // lmb
-                if(types === PointerEventTypes.POINTERDOWN)
-                {
-                    this._inputKeys.fire = true;
-                }
+                // WANT
+                // if(types === PointerEventTypes.POINTERDOWN)
+                // {
+                //     this._inputKeys.fire = true;
+                // } // WANT
                 break;
             // case 1: // mmb (scroll wheel as a button)
             case 2: // rmb

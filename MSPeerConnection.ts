@@ -28,6 +28,12 @@ const servers = {'iceServers': [
 const dataChannelSend : HTMLTextAreaElement = <HTMLTextAreaElement> document.querySelector('textarea#dataChannelSend');
 const dataChannelReceive : HTMLTextAreaElement = <HTMLTextAreaElement> document.querySelector('textarea#dataChannelReceive');
 
+const DEBUG_MSPEER : boolean = false;
+function logMSPEER(str : string) : void
+{
+    if(DEBUG_MSPEER) console.log(str);
+}
+
 export class MSPeerConnection
 {
     localConnection : RTCPeerConnection;
@@ -63,8 +69,8 @@ export class MSPeerConnection
         this.theirId = _theirId;
         this.messageBoothPath = _messageBoothPath;
 
-        console.log("booth: " + this.fromThemBoothPath);
-        console.log("booth: " + this.toThemBoothPath);
+        logMSPEER("booth: " + this.fromThemBoothPath);
+        logMSPEER("booth: " + this.toThemBoothPath);
         // window.localConnection = 
         this.localConnection = new RTCPeerConnection(servers);
 
@@ -73,15 +79,15 @@ export class MSPeerConnection
         // TODO: MS Edge error: https://stackoverflow.com/questions/13975922/script438-object-doesnt-support-property-or-method-ie
         // Does 'createDataChannel' somehow overlap with another namespace ??
         this.sendChannel = this.localConnection.createDataChannel('sendDataChannel', sendChannelParams);
-        console.log("send channel undefined? " + (this.sendChannel == undefined));
+        logMSPEER("send channel undefined? " + (this.sendChannel == undefined));
 
         this. localConnection.onicecandidate = (event => {
             event.candidate ? 
                 this. sendMessage(this. yourId, JSON.stringify({'ice' : event.candidate})) : 
-                console.log('sent all ice'); 
+                logMSPEER('sent all ice'); 
         });
 
-        console.log("create conn");
+        logMSPEER("create conn");
 
         /*
          * Assigning class member functions to channel callbacks doesn't work (for us):
@@ -96,7 +102,7 @@ export class MSPeerConnection
             }
 
             const readyState = this. sendChannel.readyState;
-            console.log('Send channel state is: ' + readyState);
+            logMSPEER('Send channel state is: ' + readyState);
             if (readyState === 'open') {
                 dataChannelSend.disabled = false;
                 dataChannelSend.focus();
@@ -111,7 +117,7 @@ export class MSPeerConnection
         const OnRecStateChanged = () => {
             if(this.receiveChannel){ 
                 const readyState = this. receiveChannel.readyState;
-                console.log(`Receive channel state is: ${readyState}`);
+                logMSPEER(`Receive channel state is: ${readyState}`);
                 this.ReceiveChanStateChangedCallback(this.receiveChannel.readyState, this);
             } 
         }
@@ -133,14 +139,14 @@ export class MSPeerConnection
                 var msg = JSON.parse(data.val().message);
                 var sender = data.val().sender;
 
-                console.log("got msg: from: " + ( sender== this. yourId? "myself" : sender ) + " msg: " + data.val().message);
+                logMSPEER("got msg: from: " + ( sender== this. yourId? "myself" : sender ) + " msg: " + data.val().message);
 
                 if(sender != this. yourId) // should always be true
                 {
                     if(msg.ice != undefined)
                     {
                         try{
-                            console.log("ice cand is defined. ");
+                            logMSPEER("ice cand is defined. ");
                             this.localConnection.addIceCandidate(new RTCIceCandidate(msg.ice));
                                 
                         } catch(err) { console.log("addIceCan Errrr: " + err); }
@@ -149,16 +155,16 @@ export class MSPeerConnection
                     else if (msg.sdp.type == "offer")
                     {
                         try {
-                            console.log("got sdp: offer");
+                            logMSPEER("got sdp: offer");
                             this.localConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp))
                                 .then(() => this.localConnection.createAnswer())
                                 .then(answer => this.localConnection.setLocalDescription(answer))
                                 .then(() => this. sendMessage(this. yourId, JSON.stringify({'sdp': this.localConnection.localDescription})));
-                        } catch(err) { console.log("setRemoDes ERr: " + err);}
+                        } catch(err) { logMSPEER("setRemoDes ERr: " + err);}
                     }
                     else if (msg.sdp.type == "answer")
                     {
-                        console.log("got sdp: answer" + msg.sdp);
+                        logMSPEER("got sdp: answer" + msg.sdp);
                         this.localConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                     }
                 }
@@ -177,10 +183,10 @@ export class MSPeerConnection
 
         this.localConnection.createOffer()
             .then(offer => {
-                console.log(`****offer from localConnection\n${offer.sdp}`);
+                logMSPEER(`****offer from localConnection\n${offer.sdp}`);
 
                 this.localConnection.setLocalDescription(offer).then(() => {
-                    console.log('sending sdp');
+                    logMSPEER('sending sdp');
                     if(this. localConnection.localDescription) 
                     {
                         this.sendMessage(this. yourId, JSON.stringify({'sdp': this. localConnection.localDescription}));
@@ -193,7 +199,7 @@ export class MSPeerConnection
                 
             },
             err => {
-                console.log('Failed to create session description: ' + err.toString());
+                logMSPEER('Failed to create session description: ' + err.toString());
             });
         
     }
@@ -224,20 +230,20 @@ export class MSPeerConnection
 
     public closeDataChannels()
     {
-        console.log('Closing data channels');
+        logMSPEER('Closing data channels');
         if(this.sendChannel) {
             this. sendChannel.close();
-            console.log('Closed data channel with label: ' + this. sendChannel.label);
+            logMSPEER('Closed data channel with label: ' + this. sendChannel.label);
         }
         if(this.receiveChannel)
         {
             this. receiveChannel.close();
-            console.log('Closed data channel with label: ' + this. receiveChannel.label);
+            logMSPEER('Closed data channel with label: ' + this. receiveChannel.label);
         }
         if(this. localConnection)
         this. localConnection.close();
 
-        console.log('Closed peer connections');
+        logMSPEER('Closed peer connections');
         
          dataChannelSend.value = '';
          dataChannelReceive.value = '';

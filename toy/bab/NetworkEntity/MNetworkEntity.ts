@@ -8,6 +8,7 @@ import { MProjectileHitInfo, ProjectileType } from "./transient/MProjectileHitIn
 import { GameEntityTags } from "../../GameMain";
 import { MUtils } from "../../Util/MUtils";
 import { MTransientStateBook } from "./transient/MTransientStateBook";
+import { MAudio } from "../../manager/MAudioManager";
 
 export abstract class MNetworkEntity
 {
@@ -202,7 +203,8 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     public get position() : Babylon.Vector3 { return this.playerPuppet.getInterpData().position; } // this.sendData.position; }
     public get entityType() : number { return EntityType.PLAYER; }; // = <number> EntityType.PLAYER;
 
-    
+    protected isClientControlledPlayer() : boolean { return false; }
+
     public health : number = MAX_HEALTH_PLAYER;
 
     // public lifeCycle : Nullable<MLifeCycle> = null; // new MLifeCycle(new LifeStage(StageType.DeadConfigureLoadout));
@@ -363,6 +365,11 @@ export class MNetworkPlayerEntity extends MNetworkEntity
         this.transientStateBook.clear();
         // this.projectileHitsOnMe.length = 0;
     }   
+
+    public recordWeaponFired() : void
+    {
+        this.transientStateBook.firedWeapon = true;
+    }
     
     protected moveDir(cmd : CliCommand) : Vector3
     {
@@ -527,6 +534,16 @@ export class MNetworkPlayerEntity extends MNetworkEntity
         while(npe.transientStateBook.projectileHitsOnMe.length > 0)
         {
             this.playerPuppet.showGettingHit(<MProjectileHitInfo>npe.transientStateBook.projectileHitsOnMe.shift());
+        }
+
+        if(!this.isClientControlledPlayer())
+        {
+            if(npe.transientStateBook.firedWeapon) 
+            {
+                // play weapon fire audio
+                console.log(`kaboom! (source : ${this.netId})`);
+                MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.Fire, npe.position);
+            }
         }
     }
 

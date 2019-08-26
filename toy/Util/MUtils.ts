@@ -26,6 +26,17 @@ export namespace MUtils
         }
     }
 
+    export function RandomString(len ? : number) {
+        if(len === undefined) len = 10;
+        var result           = '';
+        var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        var charactersLength = characters.length;
+        for ( var i = 0; i < len; i++ ) {
+            result += characters.charAt(Math.floor(Math.random() * charactersLength));
+        }
+        return result;
+    }
+
     export function StringArrayContains(arr : Array<string>, str : string)
     {
         arr.forEach((s : string) => {
