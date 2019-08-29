@@ -25,7 +25,7 @@ class AckTimer
     ) {}
 }
 
-const GAUGE_MAX_SAMPLES : number = 50;
+const GAUGE_MAX_SAMPLES : number = 100;
 
 export class MPingGauge
 {
@@ -35,10 +35,13 @@ export class MPingGauge
     public get average() : number { return this._average; }
     public get hasValidAverage() : boolean { return this._average > 0; }
 
+    public debugStr : string = "";
+
     public addAck(ackIndex : number) : void {
         if(this.times.length >= GAUGE_MAX_SAMPLES) {
             this.times.shift();
         }
+        
         this.times.push(new AckTimer(ackIndex, new Stopwatch));
     }
 
@@ -52,7 +55,9 @@ export class MPingGauge
             }
         }
 
-        if(!ackTimer) return;
+        if(!ackTimer) {
+            return;
+        } 
         ackTimer.stopWatch.complete();
     }
 
@@ -65,9 +70,10 @@ export class MPingGauge
                 total += this.times[i].stopWatch.durationMillis;
             }
         }
-        if(count > 0) {
+        if(count > GAUGE_MAX_SAMPLES / 4.0) {
             this._average = total / count;
         }
+        this.debugStr = `completed: ${count} samples: ${this.times.length} avg: ${this._average.toFixed(2)}`;
     }
 
 }

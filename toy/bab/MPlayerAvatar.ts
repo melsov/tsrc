@@ -6,11 +6,13 @@ import { MUtils } from "../Util/MUtils";
 import { GameEntityTags, g_main_camera_name } from "../GameMain";
 import { ProjectileType, MProjectileHitInfo } from "./NetworkEntity/transient/MProjectileHitInfo";
 import { MFlopbackTimer } from "../helpers/MFlopbackTimer";
-import { CliCommand } from "./MPlayerInput";
+import { CliCommand, KeyMoves } from "./MPlayerInput";
 import { ServerSimulateTickMillis } from "../MServer";
 import { MJumpCurve, JumpState } from "../helpers/MCurve";
 import { MAudio } from "../manager/MAudioManager";
 import { WeaponMeshImport, MHandGun } from "./NetworkEntity/weapon/MWeapon";
+import { MLoader } from "./MAssetBook";
+import { MArsenal } from "./NetworkEntity/weapon/MArsenal";
 
 const physicsNudgeDist : number = .01;
 const collisionBlockMargin : number = .2; // large for debug
@@ -59,12 +61,16 @@ export class MPlayerAvatar implements Puppet
     public moveSpeed : number = .1;
     
     private debugShowHitTimer : MFlopbackTimer = new MFlopbackTimer(3);
+    private debugHitPointMesh : Mesh;
+
+    public readonly arsenal : MArsenal;
 
     constructor
     (
         _scene : Scene,
         _startPos : Vector3,
         _name : string,
+        assetBook : MLoader.AssetBook
     )
     {
         this.mesh = MeshBuilder.CreateSphere(`${_name}`, {diameter : DEBUG_SPHERE_DIAMETER / 3}, _scene); // happy tsc.mesh will be set elsewhere
@@ -72,6 +78,7 @@ export class MPlayerAvatar implements Puppet
         this.mesh.ellipsoid = new Vector3(1,1,1);
         this.mesh.position.copyFromFloats(_startPos.x, _startPos.y, _startPos.z);
         this.fireIndicatorMesh = this.setupFireIndicatorMesh(); // make tsc happy
+        this.debugHitPointMesh = MeshBuilder.CreateBox(`dbg-hit-point-${_name}`, { size : .5}, _scene);
         // this.toggleFireIndicator(false);
 
         this.importCharacter(_name, _scene, _startPos);
@@ -80,16 +87,19 @@ export class MPlayerAvatar implements Puppet
         this.fireRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
 
 
-        for(let i=0; i < this.headFeetCheckRays.length; ++i) { this.headFeetCheckRays[i] = new Ray(new Vector3(), new Vector3(), clearance * 3.1); } // debug shoudl be 1.1 not 5.1
+        for(let i=0; i < this.headFeetCheckRays.length; ++i) { this.headFeetCheckRays[i] = new Ray(new Vector3(), new Vector3(), clearance * 3.1); } // debug shoudl be 1.1 not 3.1
 
-        //this.makeNoseMesh();
+        this.arsenal = MArsenal.MakeDefault(assetBook);
+        this.setupDefaultWeapon();
 
-        // TODO: if we're the cli owned player. attach to the camera
-        WeaponMeshImport.CreateWeaponLazyLoadMeshSet(WeaponMeshImport.files.handgun, _scene, MHandGun, (weap) => {
-            weap.meshSet.main.parent = this.mesh;
-            weap.meshSet.main.setPositionWithLocalVector(new Vector3(-1, 0, 2));
-        });
-        
+    }
+
+    private setupDefaultWeapon() : void 
+    {
+        let w = this.arsenal.equipped();
+        w.meshSet.main.parent = this.mesh;
+        // TODO: if cli owned. attach to camera
+        w.meshSet.main.setPositionWithLocalVector(new Vector3(-1, 0, 2));
     }
 
     private importCharacter(_name : string, _scene : Scene, _pos : Vector3) : void
@@ -197,6 +207,7 @@ export class MPlayerAvatar implements Puppet
         this.fireRayHelper.ray = prjInfo.ray;
         this.fireRayHelper.show(this.mesh.getScene(), new Color3(.9, .3, .5));
 
+        this.debugHitPointMesh.position = prjInfo.hitPoint;
     }
 
     private setHeadFeetRays(yDir : number) : void
@@ -240,10 +251,17 @@ export class MPlayerAvatar implements Puppet
         return new Vector3(1, 0, 1); // for now
     }
 
-    public get currentProjectileType() : ProjectileType { return ProjectileType.GenericLaser; }
+    get currentProjectileType() : ProjectileType { return ProjectileType.GenericLaser; }
 
-    public commandFire(forward : Vector3) : Nullable<PickingInfo>
+    // server
+    commandFire(duh : KeyMoves.DownUpHold, forward : Vector3) : Nullable<PickingInfo>
     {
+        if(!this.arsenal.equipped().shouldFire(duh)) {
+            return null;
+        }
+
+        this.arsenal.equipped().fire(duh);
+
         this.debugLastFireDir.copyFrom(forward);
         let ray = new Ray(this.mesh.position.clone(), forward, 30); 
         let pi = this.mesh.getScene().pickWithRay(ray, (mesh) => {
@@ -258,6 +276,17 @@ export class MPlayerAvatar implements Puppet
 
         return pi;
     }
+    
+    // client owned player
+    animateFire(duh : KeyMoves.DownUpHold) : void 
+    {
+        // if(!this.arsenal.equipped().fire(duh)) {
+        //     return;
+        // }
+        // MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.HandGunFire, this.mesh.position);
+        this.arsenal.equipped().playClientSideEffects();
+    }
+
 
     public addDebugLinesInRenderLoop() : void
     {
@@ -608,11 +637,6 @@ export class MPlayerAvatar implements Puppet
         this.lastCliTarget.copyFrom(this.cliTarget);
         let next = this.makeNextTargetWithCollisions(cmd);
         this.cliTarget.copyFrom(next);
-    }
-
-    animateFire() : void 
-    {
-        MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.Fire, this.mesh.position);
     }
 
     // todo: get a pos adjusted for collisions

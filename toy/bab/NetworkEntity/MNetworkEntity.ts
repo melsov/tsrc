@@ -1,5 +1,5 @@
 import * as Babylon from "babylonjs";
-import { CliCommand } from "../MPlayerInput";
+import { CliCommand, KeyMoves } from "../MPlayerInput";
 import { TransformNode, Vector3, Ray, Nullable, Mesh, MeshBuilder, Tags, StandardMaterial, Scene } from "babylonjs";
 import { BHelpers } from "../../MBabHelpers";
 import { Puppet, PlaceholderPuppet, MLoadOut } from "../MPuppetMaster";
@@ -542,7 +542,9 @@ export class MNetworkPlayerEntity extends MNetworkEntity
             {
                 // play weapon fire audio
                 console.log(`kaboom! (source : ${this.netId})`);
-                MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.Fire, npe.position);
+                this.playerPuppet.arsenal.equipped().fire(KeyMoves.DownUpHold.Down);
+                this.playerPuppet.arsenal.equipped().playClientSideEffects();
+                // MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.HandGunFire, npe.position);
             }
         }
     }

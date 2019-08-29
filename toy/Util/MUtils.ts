@@ -1,5 +1,6 @@
-import { Vector3, Ray, Camera, Matrix, Color3 } from "babylonjs";
+import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable } from "babylonjs";
 import { BHelpers } from "../MBabHelpers";
+import { GridMaterial } from "babylonjs-materials";
 
 export namespace MUtils 
 {
@@ -137,6 +138,14 @@ export namespace MUtils
         // TODO: use HSV instead
        
         return c;
+    }
+
+    export function SetGridMaterialColor(mat : Nullable<Material>, c : Color3, lineColor ? : Color3) : void 
+    {
+        if(!mat) return;
+        let gmat = <GridMaterial> mat;
+        gmat.mainColor = c;
+        if(lineColor) gmat.lineColor = lineColor;
     }
 
 }

@@ -5,11 +5,11 @@ import { MClient } from "./MClient";
 import * as MCli from "./MClient";
 // import { Fakebase } from "./Fakebase";
 import { MUtils } from "./Util/MUtils";
-import { Scene, Vector3, Tags, Nullable, Color3, Mesh, AbstractMesh, Ray } from "babylonjs";
+import { Scene, Vector3, Tags, Nullable, Color3, Mesh, AbstractMesh, Ray, MeshBuilder } from "babylonjs";
 import { GameMain, TypeOfGame, GameEntityTags } from "./GameMain";
 import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
-import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
+import { CliCommand, MPlayerInput, KeyMoves } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
 import { MPlayerAvatar, MAX_HEALTH } from "./bab/MPlayerAvatar";
 import { MProjectileHitInfo } from "./bab/NetworkEntity/transient/MProjectileHitInfo";
@@ -21,12 +21,13 @@ import { MConfirmableMessageBook, MAnnouncement, MAbstractConfirmableMessage, MP
 import { LagQueue } from "./helpers/LagQueue";
 import { Mel } from "./html-gui/LobbyUI";
 import { MAudio } from "./manager/MAudioManager";
+import { GridMaterial } from "babylonjs-materials";
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
 export const ServerSimulateTickMillis : number = 10;
 export const ServerBroadcastTickMillis : number = 20;
-const ServerRecalcPingTickMillis : number = 800;
+const ServerRecalcPingTickMillis : number = 40;
 
 export const CLOSE_BY_RELEVANT_RADIUS : number = 4; // silly small for testing
 export const AUDIBLE_RADIUS : number = CLOSE_BY_RELEVANT_RADIUS;
@@ -63,7 +64,8 @@ class QueuedCliCommand
     constructor
     (
         public cmd : CliCommand,
-        public UID : string
+        public UID : string,
+        public readonly arrivedTimestamp : number
     )
     {}
 }
@@ -116,16 +118,36 @@ export class MServer
     private confirmableBroadcasts : Array<MAbstractConfirmableMessage> = new Array<MAbstractConfirmableMessage>();
 
     private lobbyUI : Mel.LobbyUI = new Mel.LobbyUI(); // only for hiding the UI in debug mode
-    
+
+    private debugHitPointMesh : Mesh;
+    private debugFirePointMesh : Mesh;
+
+    private broadcastsPerAck : number = 10; // sample ackIndices every broadcastsPerAck broadcast
 
     constructor(
         private game : GameMain
     )
     {
         this.game.init();
-        this.puppetMaster = new MPuppetMaster(this.game.scene);
+        this.puppetMaster = new MPuppetMaster(this.game.mapPackage);
 
         this.lobbyUI.showHide(false);
+
+        this.debugHitPointMesh = MeshBuilder.CreateCylinder(`srvr-show-hit-debug`, {
+            height : 6,
+            diameter : 2
+        }, this.game.scene);
+        let mat = new GridMaterial(`debug-srvr-hitPoint-mat`, this.game.scene);
+        mat.mainColor = new Color3(1, .6, .6);
+        this.debugHitPointMesh.material = mat;
+
+        this.debugFirePointMesh = MeshBuilder.CreateCylinder(`srvr-show-hit-debug`, {
+            height : 6,
+            diameter : 2
+        }, this.game.scene);
+        let fmat = new GridMaterial(`debug-srvr-firefrom-mat`, this.game.scene);
+        fmat.mainColor = new Color3(0, 1, .6);
+        this.debugFirePointMesh.material = fmat;
     }
 
     // TODO: mechanism for allowing player to get a load out and agree to enter the game
@@ -215,7 +237,8 @@ export class MServer
         this.recalcPingTimer.tick(this.game.engine.getDeltaTime(), () => {
             this.clients.forEach((user, cli) => {
                 cli.pingGauge.recomputeAverage();
-                cli.roundTripMillis = cli.pingGauge.average;
+                if(cli.pingGauge.average > 0) // at least?
+                    cli.roundTripMillis = cli.pingGauge.average;
             });
         });
        
@@ -223,7 +246,7 @@ export class MServer
 
     public handleClientMessage(uid : string, msg : string) : void
     {
-        this.cmdQueue.enqueue(new QueuedCliCommand(MCli.CommandFromString(msg), uid));
+        this.cmdQueue.enqueue(new QueuedCliCommand(MCli.CommandFromString(msg), uid, +new Date()));
     }
 
     //TODO: players are either not starting in a spot that synced with server pos
@@ -243,7 +266,7 @@ export class MServer
             if(playerEnt != undefined)
             {
                 playerEnt.applyCliCommandServerSide(qcmd.cmd);
-                this.handleFire(playerEnt, qcmd.cmd);
+                this.handleFire(playerEnt, qcmd);
 
                 // fake decrement health
                 if(qcmd.cmd.debugTriggerKey) {
@@ -377,37 +400,46 @@ export class MServer
     // }
 
     // rewind time for all players (except the firer) (who should be in the latest place, per latest commands)
-    private handleFire(firingPlayer : MNetworkPlayerEntity, cliCommand : CliCommand) : void
+    private handleFire(firingPlayer : MNetworkPlayerEntity, qcmd : QueuedCliCommand) : void
     {
-        if(!cliCommand.fire) return;
- 
+        let cliCommand = qcmd.cmd;
+        
+        if(!firingPlayer.playerPuppet.arsenal.equipped().shouldFire(cliCommand.fire)) return;
+        // if(pickingInfo === null) return;
+        // if(!KeyMoves.IsDown(cliCommand.fire)) return;
+        
         firingPlayer.recordWeaponFired();
-
-        if(!this.rewindState(this.currentState, firingPlayer)) { 
+        
+        if(!this.rewindState(this.currentState, firingPlayer, qcmd.arrivedTimestamp)) { 
             console.log(`rewind failed`);
+            MUtils.SetGridMaterialColor(this.debugFirePointMesh.material, new Color3(.3, .7, .8));
             return; 
-        }
-
+        } 
+        
+        this.debugFirePointMesh.position = firingPlayer.position;
+        MUtils.SetGridMaterialColor(this.debugFirePointMesh.material, new Color3(0, .9, .3));
+        
         // let other = this.DebugGetAnotherPlayer(firingPlayer);
         // if(!other) { return; }
         // let origPos = other.position.clone();
         // other.teleport(firingPlayer.position.add(new Vector3(4, 0, 0)));
-
-
+        
+        
         // TODO: correct loadouts in other cli's view
-
+        
         // TODO: devise a test to know when what is really being ray cast and where
         // shadows are looking like a pretty good option atm.
-
+        
         // but what about handling multiple shots in the same frame???
         // maybe go back to the raycast playground and try more tests
-
-
+        
+        
         // render the scene here. Seems needed to get the rewound position to register before raycasting
         this.game.scene.render();
+        let pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.fire, cliCommand.forward);
 
-        let pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.forward);
 
+        //DEBUG
         let debugFireStr = "";
         if(pickingInfo) {
             debugFireStr = pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray ? " will hit: " : `won't hit `;
@@ -420,6 +452,11 @@ export class MServer
 
         if(pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray)
         {
+            //DEBUG
+            if(pickingInfo.pickedPoint) {
+                this.debugHitPointMesh.position = pickingInfo.pickedPoint;
+                MUtils.SetGridMaterialColor(this.debugHitPointMesh.material, new Color3(1, .7, .7));
+            }
 
             let tgs = <string | null> Tags.GetTags(pickingInfo.pickedMesh);
             debugFireStr += `. tags: ${tgs}`;
@@ -429,8 +466,16 @@ export class MServer
                 let hitPlayer = <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(pickingInfo.pickedMesh.name);
                 if(hitPlayer != undefined && hitPlayer != null) 
                 {
+                    MUtils.SetGridMaterialColor(this.debugHitPointMesh.material, new Color3(.1, .4, 1)); //DEBUG
+
                     let netIdLookup = hitPlayer.netId; // pickingInfo.pickedMesh.name; // for now
-                    let prInfo = new MProjectileHitInfo(netIdLookup, firingPlayer.playerPuppet.currentProjectileType, pickingInfo.ray, 3);
+                    let prInfo = new MProjectileHitInfo(
+                        netIdLookup, 
+                        firingPlayer.playerPuppet.currentProjectileType, 
+                        pickingInfo.ray, 
+                        3,
+                        pickingInfo.pickedPoint ? pickingInfo.pickedPoint : Vector3.Zero());
+
                     let beforeHealth = hitPlayer.health;
                     hitPlayer.getHitByProjectile(prInfo);
                     debugFireStr += ` ${hitPlayer.netId} got hit`;
@@ -451,6 +496,7 @@ export class MServer
                 }
             }
         }
+        //DEBUG
         else if(pickingInfo) {
             console.log(`hit? ${pickingInfo.hit}, mesh? ${pickingInfo.pickedMesh !== null}, ray? ${pickingInfo.ray !== null} `);
         }
@@ -483,17 +529,40 @@ export class MServer
         }
         console.log('we passed: buffers ordered by timestamp');
     }
+
+    private debugStateBufferTimes(targetTime : number, cli : CliEntity) : void 
+    {
+        if(this.stateBuffer.length === 0) return;
+        let first = this.stateBuffer[0];
+        let last = this.stateBuffer[this.stateBuffer.length - 1];
+        let msg = "CONTAINS";
+        if(last.timestamp < targetTime) msg = "TARGET IN FUTURE";
+        else if (first.timestamp > targetTime) msg = "TARGET IN PAST";
+
+        let span = last.timestamp - first.timestamp;
+        let targetSpan = targetTime - first.timestamp;
+
+        let commenarty = "";
+        if(last.timestamp < first.timestamp) commenarty = "last before first?";
+        if(cli.roundTripMillis <= 0) commenarty += " cli.rTT neg or zero?";
+
+        console.log(`${msg} span: ${span}. target span: ${targetSpan}. ${commenarty} . calc as: -${cli.roundTripMillis} -${ServerBroadcastTickMillis}`);
+    }
     
-    private rewindState(state : MWorldState, firingPlayer : MNetworkPlayerEntity) : boolean
+    private rewindState(state : MWorldState, firingPlayer : MNetworkPlayerEntity, cmdArriveTimestamp : number) : boolean
     {
 
         let cli = this.findClient(firingPlayer.netId);
         if(!cli) { console.log('no cli?'); return false;}
 
-        let now = +new Date();
-        let rewindPointMillis = now - cli.roundTripMillis - ServerBroadcastTickMillis;
+        
+        // let rewindPointMillis = +new Date() - cli.roundTripMillis / 2 - ServerBroadcastTickMillis;
+        let rewindPointMillis = cmdArriveTimestamp - cli.roundTripMillis / 2;
+
         let a : Nullable<MWorldState> = null;
         let b : Nullable<MWorldState> = null;
+
+        this.debugStateBufferTimes(rewindPointMillis, cli);
 
         // find the state buffers just before (a) and
         // just after (b) rewindPointMillis
@@ -529,8 +598,10 @@ export class MServer
         this.currentState.lookup.forEach((user : string, mnet : MNetworkEntity) => {
             let pl = <MNetworkPlayerEntity>(<unknown> mnet);
             let cli = this.findClient(pl.netId);
-            if(cli)
+            if(cli) {
                 str += ` ${user}: ping: ${cli.pingGauge.average.toFixed(2)} ${(mnet.shouldDelete ? "D" : "")} / `;
+                str += cli.pingGauge.debugStr;
+            }
         });
 
 
@@ -557,6 +628,11 @@ export class MServer
 
     }
 
+    // ***TODO****: continuous ray to show potential hits
+    // for (say) first player.
+
+    // CONSIDER ! : rewind should go back only by half of rTT!
+
     // each client has a last ack'd update
     // foreach cli:
     //    for now: send the latest abs state
@@ -570,20 +646,25 @@ export class MServer
             // console.log(`server current ack: ${this.currentState.ackIndex}. cli.lastAck: ${cli.lastAckIndex} statebuffer len ${this.stateBuffer.length}`);
             // if(cliDif > 0)
             {
-
-                // add a ping gauge entry (just before sending data)
-                // current state's ackIndex was already incremented so subtract 1
-                cli.pingGauge.addAck(this.currentState.ackIndex - 1); 
-
+                
                 // cli too far behind?
                 // send an abs state
                 if(forceAbsUpdate || 
                     cliDif > this.stateBuffer.length || // too far behind?
                     cli.lastProcessedInput === 0)  // never ack'd?
                 {
-                    let state = this.stateBuffer[this.stateBuffer.length - 1]
-                        .relevancyShallowClone(<MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user), this.game.scene, cli.relevantBook, CLOSE_BY_RELEVANT_RADIUS);
-                    let su = new ServerUpdate(state, cli.lastProcessedInput);  
+                    let state = this.stateBuffer[this.stateBuffer.length - 1].relevancyShallowClone(
+                        <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user), 
+                        this.game.scene, 
+                        cli.relevantBook, 
+                        CLOSE_BY_RELEVANT_RADIUS);
+                        let su = new ServerUpdate(state, cli.lastProcessedInput);  
+                        
+                    // add a ping gauge entry every nth broadcast
+                    // if we sample too frequently, we risk having samples
+                    // get shifted out before they can be confirmed
+                    if(state.ackIndex % this.broadcastsPerAck === 0)
+                        cli.pingGauge.addAck(state.ackIndex);
 
                     // TODO: convert Server Update to 'any'
                     // so that we can decline to add properties that we don't need

@@ -9,7 +9,7 @@ export namespace MAudio
 
     export enum SoundType
     {
-        Fire
+        HandGunFire
     }
 
     class AudioURL
@@ -21,7 +21,7 @@ export namespace MAudio
     }
 
     const audioKeys : AudioURL[] = [
-        new AudioURL(SoundType.Fire, MLoader.AudioFiles.Instance.dink.getKey())
+        new AudioURL(SoundType.HandGunFire, MLoader.AudioFiles.Instance.dink.getKey())
     ]; 
 
 
@@ -59,8 +59,26 @@ export namespace MAudio
         private book : Dictionary<SoundType, Sound[]> = new Dictionary<SoundType, Sound[]>();
         private queue : PriorityQueue<QueueableSound>;
 
+        private audioEnabled : boolean = false;
+        enable(_enable : boolean) : void 
+        {
+            this.audioEnabled = _enable;
+            if(this.audioEnabled) {
+                this.setupSoundsWithAssetBook();
+                this.makeANoise();
+            } 
+        }
+        
+        private makeANoise() : void {
+            let dinks = this.book.getValue(SoundType.HandGunFire);
+            if(dinks === undefined) throw new Error("help");
+            dinks[0].play();
+        }
+
         private setupSoundsWithAssetBook() : void 
         {
+            if(this.book.keys().length > 0) { return; } // only once
+
             audioKeys.forEach((audioURL : AudioURL) => {
                 let binTask = this.assetBook.getAudioTask(audioURL.assetKey);
                 if(binTask === undefined) {
@@ -87,58 +105,16 @@ export namespace MAudio
         )
         {
             
-            this.debugPlayBackgroundMusic();
+            // this.debugPlayBackgroundMusic();
 
             this.queue = new PriorityQueue<QueueableSound>((a : QueueableSound, b : QueueableSound) => {
                 return a.distSquared() < b.distSquared() ? 1 : -1; 
              });
 
-             this.setupSoundsWithAssetBook();
-
-            // audioKeys.forEach((audioURL : AudioURL) => {
-
-            //     // without asset manager
-            //     let insts = new Array<Sound>();
-            //     for(let i=0; i<MAX_SIMULTANEOUS; ++i) 
-            //     {
-            //         insts.push(new Sound(`${audioURL.assetKey}-${i}`, audioURL.assetKey, this.scene, () => {}, {
-            //             loop : false,
-            //             autoPlay : false,
-            //             spatialSound : true
-            //         }));
-            //     }
-            //     this.book.setValue(audioURL.soundType, insts);
-
-            //     // // with asset manager
-            //     // let task = assetManager.addBinaryFileTask(`load-${audioURL.url}`, audioURL.url);
-            //     // // NOTE: onSuccess never executed for us
-            //     // task.onSuccess = (task : BinaryFileAssetTask) => {
-            //     //     this.dataBook.setValue(audioURL.soundType, task.data);
-                    
-            //     //     // load all immediately
-            //     //     // need MAX_SIMULTANEOUS instances per sound type
-            //     //     let insts = new Array<Sound>();
-            //     //     for(let i=0; i<MAX_SIMULTANEOUS; ++i) 
-            //     //     {
-            //     //         insts.push(new Sound(`${audioURL.url}-${i}`, task.data, this.scene, () => {}, {
-            //     //             loop : false,
-            //     //             autoPlay : false,
-            //     //             spatialSound : true
-            //     //         }));
-            //     //     }
-            //     //     console.log(`adding fire sound: ${audioURL.soundType}`);
-            //     //     this.book.setValue(audioURL.soundType, insts);
-            //     // }
-
-            //     // task.onError = (task : BinaryFileAssetTask, msg ? : string, exception? : any) => {
-            //     //     throw new Error(`Load sound ${audioURL.url} failed: ${msg} `);
-            //     // }
-            // });
- 
-
+             // this.setupSoundsWithAssetBook();
         }
 
-        //
+        // 
         // chrome sometimes requires user's to opt in to audio playback
         // brief gun fire audio does not seem to make the unmute button show up
         private debugPlayBackgroundMusic() : void
@@ -174,19 +150,24 @@ export namespace MAudio
                 for(j = 0; j < sounds.length; ++j) {
                     if(!sounds[j].isPlaying) {
                         sounds[j].setPosition(_type.position);
-                        sounds[j].play();
+                        this.Play(sounds[j]);
                         allWerePlaying = false;
                         break;
                     }
                 }
                 if(allWerePlaying) {
                     sounds[0].stop();
-                    sounds[0].play();
+                    this.Play(sounds[0]);
                 }
                 
             }
 
             this.queue.clear();
+        }
+
+        private Play(s : Sound) : void 
+        {
+            if(this.audioEnabled) s.play();
         }
     }
 }

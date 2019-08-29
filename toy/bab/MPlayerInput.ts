@@ -2,7 +2,36 @@ import { Axis, Vector3, Scene, PickingInfo, PointerEventTypes, Nullable } from "
 import { MToggle } from "../helpers/MToggle";
 import { MLoadOut } from "./MPuppetMaster";
 
+export namespace KeyMoves
+{
+    export enum DownUpHold
+    {
+        Down = 1, Hold = 2, WentUp = 3, StillUp = 4
+    }
 
+    export function IsDown(duh : DownUpHold) : boolean
+    {
+        return duh <= DownUpHold.Hold;
+    }
+
+    export function TransitionWithInput(current : DownUpHold, next : boolean) : DownUpHold
+    {
+        let result = next ? 
+        (current <= DownUpHold.Hold ? DownUpHold.Hold : DownUpHold.Down) : 
+        (current <= DownUpHold.Hold ? DownUpHold.WentUp : DownUpHold.StillUp);
+        
+        if(current <= DownUpHold.WentUp) {
+            console.log(`curr: ${current} isDown: ${next} result ${result}`);
+        }
+
+        return result;
+    }
+
+    export function Transition(current : DownUpHold) : DownUpHold
+    {
+        return current <= DownUpHold.Hold ? DownUpHold.Hold : DownUpHold.StillUp;
+    }
+}
 
 export class CliCommand
 {
@@ -11,7 +40,7 @@ export class CliCommand
     forward : Vector3 = Vector3.Forward();
     rotation : Vector3 = Vector3.Zero();
     claimY : number = 0;
-    fire : boolean = false;
+    fire : KeyMoves.DownUpHold = KeyMoves.DownUpHold.StillUp;
     jump : boolean = false;
     debugTriggerKey : boolean = false; 
     
@@ -27,7 +56,7 @@ export class CliCommand
 
     loadOutRequest : Nullable<MLoadOut> = null;
     
-    get hasAMove() : boolean { return this.horizontal * this.horizontal > 0 || this.vertical * this.vertical > 0 || this.fire; } 
+    get hasAMove() : boolean { return this.horizontal * this.horizontal > 0 || this.vertical * this.vertical > 0 || this.fire > KeyMoves.DownUpHold.WentUp; } 
 }
 
 class InputKeys
@@ -36,7 +65,7 @@ class InputKeys
     back : boolean = false;
     right : boolean = false;
     left : boolean = false;
-    fire : boolean = false;
+    fire : KeyMoves.DownUpHold = KeyMoves.DownUpHold.StillUp;
     jump : boolean = false;
 
     debugGoWrongPlace : boolean = false;
@@ -45,7 +74,8 @@ class InputKeys
 
     reset()
     {
-        this.fwd = this.back = this.right = this.left = this.fire = this.jump = false;
+        this.fwd = this.back = this.right = this.left = this.jump = false;
+        //this.fire = KeyMoves.DownUpHold.StillUp;
     }
 
     get debugLeftRightOrNothing() : string { return this.left ? "left " : (this.right ? "right" : ""); }
@@ -198,6 +228,7 @@ export class MPlayerInput
         cc.vertical = (this._inputKeys.back ? -1 : (this._inputKeys.fwd ? 1 : 0)) * dt;
         
         cc.fire = this._inputKeys.fire;
+        this._inputKeys.fire = KeyMoves.Transition(this._inputKeys.fire); // move to next key state
 
         cc.debugTriggerKey = this.debugTriggerReady && this._inputKeys.debugGoWrongPlace;
 
@@ -221,6 +252,7 @@ export class MPlayerInput
         switch(ev.button)
         {
             case 0: // lmb
+                this._inputKeys.fire = KeyMoves.TransitionWithInput(this._inputKeys.fire, isDown); // types === PointerEventTypes.POINTERDOWN);
                 // WANT
                 // if(types === PointerEventTypes.POINTERDOWN)
                 // {
@@ -262,10 +294,10 @@ export class MPlayerInput
                 case this.keySet.right:
                     this._inputKeys.right = isDownEvent;
                     break;
-                case this.keySet.fire:
-                    if(!kev.repeat || !isDownEvent)
-                        this._inputKeys.fire = isDownEvent;
-                    break;
+                // case this.keySet.fire:
+                //     // if(!kev.repeat) // || !isDownEvent)
+                //     this._inputKeys.fire = KeyMoves.Transition(this._inputKeys.fire, isDownEvent);
+                //     break;
                 case this.keySet.debugGoWrongPlace:
                     if(!kev.repeat || !isDownEvent)
                         this._inputKeys.debugGoWrongPlace = isDownEvent;

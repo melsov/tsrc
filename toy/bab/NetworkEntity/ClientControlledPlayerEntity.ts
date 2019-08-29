@@ -32,10 +32,13 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     
     createImmediateEffectsFromInput(cliCommand : CliCommand) : void
     {
-        if(cliCommand.fire) {
+        if(this.playerPuppet.arsenal.equipped().shouldFire(cliCommand.fire)) 
+        {
+        // if(cliCommand.fire) {
             //TODO: if has ammo
             console.log(`will animate fire`);
-            this.playerPuppet.animateFire();
+            this.playerPuppet.arsenal.equipped().fire(cliCommand.fire);
+            this.playerPuppet.animateFire(cliCommand.fire);
         }
 
     }

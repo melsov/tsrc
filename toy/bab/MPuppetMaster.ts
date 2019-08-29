@@ -3,6 +3,7 @@ import { MNetworkEntity, EntityType, CliTarget, InterpData } from "./NetworkEnti
 import { TransformNode, Scene, Engine, Color3, Vector3 } from "babylonjs";
 import { MPlayerAvatar } from "./MPlayerAvatar";
 import { MUtils } from "../Util/MUtils";
+import { MLoader } from "./MAssetBook";
 
 
 
@@ -67,7 +68,8 @@ export class MPuppetMaster
 {
     private puppets : Dictionary<string, Puppet> = new Dictionary<string, Puppet>();
     constructor(
-        public scene : Scene
+        //public scene : Scene,
+        public readonly mapPackage : MLoader.MapPackage
     )
     {
 
@@ -80,7 +82,7 @@ export class MPuppetMaster
             case EntityType.PLAYER:
             case undefined:
             default:                
-                return new MPlayerAvatar(this.scene, new Vector3(), ent.netId); 
+                return new MPlayerAvatar(this.mapPackage.scene, new Vector3(), ent.netId, this.mapPackage.assetBook); 
         }
     }
 

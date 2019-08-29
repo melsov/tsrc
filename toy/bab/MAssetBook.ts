@@ -56,9 +56,15 @@ export namespace MLoader
 
     const folderModels : string = "models";
     const folderWeapons : string = `${folderModels}/weapons`;
+
     export class MeshFiles 
     {
-        readonly map : Loadable = new Loadable(folderModels, "relevant.babylon");
+        private static _instance : Nullable<MeshFiles> = null;
+        static get Instance() : MeshFiles {
+            if (!this._instance) { this._instance = new  MeshFiles(); }
+            return this._instance;
+        }
+        // readonly map : Loadable = new Loadable(folderModels, "relevant.babylon"); // want
         readonly handgun : Loadable = new Loadable(folderWeapons, "handgun.babylon");
     }
     
@@ -74,40 +80,15 @@ export namespace MLoader
         readonly dink : Loadable = new Loadable(AudioFiles.folderAudio, "dink.wav");
     }
 
-    function _getLoadablesFrom(mapID : MapID, files : object) : Loadable[]
+    // TODO: mechanism for loading assets per scene
+    function GetLoadablesFrom(mapID : MapID, files : object) : Loadable[]
     {
         let keys = Object.keys(files);
         return keys.map(key => Reflect.get(files, key));
     }
     
-    // TODO: mechanism for loading assets per scene
-    function Loadables(mapID : MapID) : Loadable[] 
-    {
-        let result = _getLoadablesFrom(mapID, new MeshFiles());
-        result.concat(_getLoadablesFrom(mapID, new AudioFiles()));
-        return result;
-    } 
-    
     export class AssetBook
     {
-
-
-        static TestAssetManager(scene : Scene, callback : (task : MeshAssetTask) => void) : void
-        {
-            let am = new AssetsManager(scene);
-            let task = am.addMeshTask('test-task', "", "./models/weapons/", "handgun.babylon");
-
-            task.onSuccess = (task : MeshAssetTask) => {
-                callback(task);
-            }
-
-            am.onFinish = (task : AbstractAssetTask[]) => {
-                console.log(`ON FINISH CB`);
-            }
-
-            am.load();
-        }
-
         private readonly am : AssetsManager;
 
         private readonly loadedMeshes : Dictionary<string, MeshAssetTask> = new Dictionary<string, MeshAssetTask>();
@@ -130,13 +111,13 @@ export namespace MLoader
                 return;
             }
 
-            let meshLoadables = _getLoadablesFrom(mapID, new MeshFiles());
+            let meshLoadables = GetLoadablesFrom(mapID, new MeshFiles());
             meshLoadables.forEach((loadable : Loadable) => {
                 let task = this.am.addMeshTask(`task-${loadable.fileName}`, "", `${loadable.folder}/`, loadable.fileName);
                 this.loadedMeshes.setValue(loadable.getKey(), task);
             });
 
-            let audioLoadables = _getLoadablesFrom(mapID, new AudioFiles());
+            let audioLoadables = GetLoadablesFrom(mapID, new AudioFiles());
             audioLoadables.forEach((loadable: Loadable) => {
                 let task = this.am.addBinaryFileTask(`task-${loadable.fileName}`, `${loadable.folder}/${loadable.fileName}`);
                 this.loadedAudio.setValue(loadable.getKey(), task);

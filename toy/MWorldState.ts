@@ -62,6 +62,7 @@ export class MWorldState
             // without this we risk getting 'statues': never updated other players that stay in their last seen spot in the cli players view
             // could use a simple (fairly wide) radius (or a box since we foresee a boxy world? or some cleverly bounced rays) to determine which n-ents to request
             // within this radius, only need to ask for others who were not seen in the last update.
+            // OR (BETTER): Simply mark irrelevant players as irrelevant in server updates and make them invisible on the client
             else if (relevancy <= -MServer.Relevancy.RECENTLY_RELEVANT) { // They haven't been relevant for a while. force relevance. 
                 relevancy = MServer.Relevancy.NOT_RELEVANT + 2; 
             } 
@@ -97,7 +98,7 @@ export class MWorldState
                     if(pinfo && pinfo.hit && pinfo.pickedMesh) {
                         if(pinfo.pickedMesh.name === ent.netId) {
                             relevancy = MServer.Relevancy.RECENTLY_RELEVANT;
-                            // could break here. except debug rays
+                            // could call break here. except debug rays
                         }
                     }
 

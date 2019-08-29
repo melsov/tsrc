@@ -5,7 +5,7 @@ import { MNetworkPlayerEntity, MNetworkEntity } from "./bab/NetworkEntity/MNetwo
 import { GameMain, TypeOfGame } from "./GameMain";
 import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
-import { CliCommand, MPlayerInput } from "./bab/MPlayerInput";
+import { CliCommand, MPlayerInput, KeyMoves } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
 import { Color3, Vector3, AssetsManager, MeshAssetTask } from "babylonjs";
 import { MPlayerAvatar } from "./bab/MPlayerAvatar";
@@ -60,10 +60,8 @@ export class MClient
 
     public readonly playerEntity : ClientControlledPlayerEntity;
     private clientViewState : MWorldState = new MWorldState();
-
     private puppetMaster : MPuppetMaster;
 
-   
     public readonly fpsCam : FPSCam;
     private input : MPlayerInput;
     private inputSequenceNumber : number = 0;
@@ -84,7 +82,7 @@ export class MClient
 
     private fromServer : LagQueue<string> = new LagQueue<string>(LAG_MS_FAKE);
     // private fromServer : Collections.Queue<string> = new Collections.Queue<string>();
-    private reliableFromServer : Collections.Queue<string> = new Collections.Queue<string>();
+    // private reliableFromServer : Collections.Queue<string> = new Collections.Queue<string>();
 
     private gotFirstServerMessage : boolean = false;
 
@@ -98,8 +96,6 @@ export class MClient
 
     private requestLoadOutFunc : () => void = () => {};
 
-    private assetManager : AssetsManager;
-
     constructor(
         public readonly user : tfirebase.User,
         public readonly game : GameMain,
@@ -107,11 +103,9 @@ export class MClient
     ) 
     {
         this.DebugClientNumber = g_howManyClientsSoFar++;
-
-        this.assetManager = new AssetsManager(this.game.scene);
         
         this.playerEntity = new ClientControlledPlayerEntity(this.user.UID); // MNetworkPlayerEntity(this.user.UID);
-        this.puppetMaster = new MPuppetMaster(this.game.scene);
+        this.puppetMaster = new MPuppetMaster(this.game.mapPackage); // this.game.scene);
         this.input = new MPlayerInput(this.DebugClientNumber > 0);
         this.input.useScene(this.game.canvas, this.game.scene);
         
@@ -122,7 +116,7 @@ export class MClient
         
         this.clientViewState.setEntity(this.user.UID, this.playerEntity);
         
-        MUtils.Assert(this.playerEntity.playerPuppet.mesh != undefined, "surprising");
+        MUtils.Assert(this.playerEntity.playerPuppet.mesh != undefined, "surprising!");
         
         //customize puppet
         let skin = MLoadOut.DebugCreateLoadout(this.DebugClientNumber);
@@ -150,12 +144,11 @@ export class MClient
 
         this.lobbyUI.handleEnterGamePressed = (ev: MouseEvent) => {
             this.handleEnterGamePressed();
+
+            MAudio.MAudioManager.Instance.enable(true);
         }
 
-        //TEST
-        MLoader.AssetBook.TestAssetManager(this.game.scene, (task : MeshAssetTask) => {
-            console.log(`got loader on success callback: ${task.name}`);
-        })
+       
     }
 
     private setupManagers() : void 
@@ -270,7 +263,6 @@ export class MClient
         // }
         
         command.inputSequenceNumber = this.inputSequenceNumber++;
-
         command.forward = this.fpsCam.forward();
         command.rotation = this.game.camera.rotation.clone();
 
@@ -279,6 +271,8 @@ export class MClient
             this.playerEntity.applyCliCommand(command); // with collisions
             this.playerEntity.createImmediateEffectsFromInput(command);
         }
+
+        //if(command.fire <= KeyMoves.DownUpHold.Hold) console.log(command.fire);
 
         command.claimY = this.playerEntity.position.y;
 

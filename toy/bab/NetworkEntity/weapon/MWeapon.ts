@@ -2,6 +2,9 @@ import { MServer, ServerSimulateTickMillis } from "../../../MServer";
 import { Mesh } from "babylonjs/Meshes/mesh";
 import { TransformNode, Node, Scene, SceneLoader, AbstractMesh, IParticleSystem, Skeleton, AnimationGroup, Nullable, MeshBuilder, Vector3 } from "babylonjs";
 import { MUtils } from "../../../Util/MUtils";
+import { KeyMoves } from "../../MPlayerInput";
+import { MAudio } from "../../../manager/MAudioManager";
+import { MLoader } from "../../MAssetBook";
 
 
 
@@ -37,21 +40,38 @@ export namespace WeaponMeshImport
     }
     */
 
+    export function FindMeshSet(meshes : AbstractMesh[]) : WeaponMeshSet
+    {
+        let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
+        for(let i=0; i<meshes.length; ++i) {
+            let m = meshes[i];
+            if(m.name == 'muzzle') {
+                muzzle = m;
+            } else {
+                main = <Mesh>m;
+            }
+        }
+        if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
+
+        return new WeaponMeshSet(main, muzzle);
+    }
+
     export function CreateWeaponMeshSet(fileName : string, scene : Scene, onSuccess : (weapMeshSet : WeaponMeshSet) => void) : void 
     {
-        SceneLoader.ImportMesh(null, `./models/${folder}/`, fileName, scene, (meshes : AbstractMesh[], particleSystems : IParticleSystem[], skels : Skeleton[], animGroups : AnimationGroup[]) => {
-            let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
-            for(let i=0; i<meshes.length; ++i) {
-                let m = meshes[i];
-                if(m.name == 'muzzle') {
-                    muzzle = m;
-                } else {
-                    main = <Mesh>m;
-                }
-            }
-            if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
-
-            let meshSet = new WeaponMeshSet(main, muzzle);
+        SceneLoader.ImportMesh(null, `./models/${folder}/`, fileName, scene, 
+            (meshes : AbstractMesh[], particleSystems : IParticleSystem[], skels : Skeleton[], animGroups : AnimationGroup[]) => {
+                // let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
+                // for(let i=0; i<meshes.length; ++i) {
+                //     let m = meshes[i];
+                //     if(m.name == 'muzzle') {
+                //         muzzle = m;
+                //     } else {
+                //         main = <Mesh>m;
+                //     }
+                // }
+                // if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
+    
+                let meshSet = FindMeshSet(meshes); // new WeaponMeshSet(main, muzzle);
             onSuccess(meshSet);
         });
     }
@@ -73,6 +93,16 @@ export namespace WeaponMeshImport
         return weap;
     }
     
+}
+
+
+export class GunEffects
+{
+    constructor(
+        public fireSoundType : MAudio.SoundType
+        // TODO: Loadable particles
+    ) 
+    {}
 }
 
 class WeaponMeshSet 
@@ -105,12 +135,47 @@ class WeaponMeshSet
 
 export abstract class MAbstractWeapon
 {
+
+    constructor(
+        public meshSet : WeaponMeshSet
+    ){}
+
+    public abstract effects : GunEffects;
     // we think fireRate needs to be a multiple of the simulate tick rate
     protected fireRateM : number = ServerSimulateTickMillis * 10;
     protected abstract get isAutomatic() : boolean;
+
+    protected _ammo : number = this.MaxAmmo(); 
+    public MaxAmmo() : number { return 10; }
+    public get ammo() : number { return this._ammo; }
+    public addAmmo(amt : number) { this._ammo = Math.min(amt + this._ammo, this.MaxAmmo()); }
+    protected decrementAmmo() : void { this._ammo = Math.max(0, this.ammo - 1); }
     
+    public abstract shouldFire(duh : KeyMoves.DownUpHold) : boolean;
+
+    // protected playEffects : () => void = () => {};
+    // enableClientSideEffects() : void {
+    //     this.playEffects = this.playClientSideEffects;
+    // }
+
+    // Please don't call this from sub classes. thank you
+    public abstract playClientSideEffects() : void;
     
-    protected abstract _fire() : void;
+    public fire(duh : KeyMoves.DownUpHold) : boolean 
+    {
+        // if(!this.shouldFire(duh)) { return false; } // assume we already 'should fire' called externally
+        if(this._ammo <= 0) { 
+            return false; 
+        }
+
+        if(this._fire()) {
+            this.decrementAmmo();
+            return true;
+        }
+        return false;
+    }
+
+    protected abstract _fire() : boolean;
 
     
     
@@ -125,28 +190,29 @@ export abstract class MAbstractWeapon
         throw new Error(`couldn't find muzzle child in ${gunMesh.name}`);
     }
 
-    constructor(
-        public meshSet : WeaponMeshSet
-    ){
-    }
-
 }
 
 export abstract class MVoluntaryWeapon extends MAbstractWeapon
 {
-    private isFireAvailable : boolean = true;
+    private isTimeoutFinished : boolean = true;
     protected get isAutomatic() : boolean { return false; }
 
-    protected _fire() : void 
+    public shouldFire(duh : KeyMoves.DownUpHold) : boolean { return this.isTimeoutFinished && duh === KeyMoves.DownUpHold.Down; }
+
+    protected _fire() : boolean 
     {
-        if(this.isFireAvailable) {
-            this.isFireAvailable = false;
+        if(this.isTimeoutFinished) 
+        {
+            this.isTimeoutFinished = false;
             window.setTimeout(() => {
-                this.isFireAvailable = true;
+                this.isTimeoutFinished = true;
             }, this.fireRateM);
 
             this.doFire();
+            // this.playEffects();
+            return true;
         }
+        return false;
     }
 
     protected abstract doFire() : void;
@@ -156,9 +222,31 @@ export abstract class MVoluntaryWeapon extends MAbstractWeapon
 //TODO: simply test out importing
 export class MHandGun extends MVoluntaryWeapon
 {
-    protected doFire(): void 
+
+    static CreateHandGun(book : MLoader.AssetBook) : MHandGun
     {
-        throw new Error("Method not implemented.");
+        let t = book.getMeshTask(MLoader.MeshFiles.Instance.handgun.getKey());
+        if(t === undefined) throw new Error(`couldn't find handgun asset`);
+        let meshSet = WeaponMeshImport.FindMeshSet(t.loadedMeshes);
+        return new MHandGun(meshSet);
+    }
+
+    public effects : GunEffects = new GunEffects(
+        MAudio.SoundType.HandGunFire
+        );
+        
+    
+
+    public playClientSideEffects() : void 
+    {
+        MAudio.MAudioManager.Instance.enqueue(this.effects.fireSoundType, this.meshSet.muzzle.position);
+
+        // TODO: play particles
+    }
+ 
+    protected doFire(): void // need a way to only create fire effects client side
+    {
+        
     }
     
 }
