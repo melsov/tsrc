@@ -64,8 +64,10 @@ export namespace MLoader
             if (!this._instance) { this._instance = new  MeshFiles(); }
             return this._instance;
         }
+
         // readonly map : Loadable = new Loadable(folderModels, "relevant.babylon"); // want
         readonly handgun : Loadable = new Loadable(folderWeapons, "handgun.babylon");
+        readonly player : Loadable = new Loadable(`${folderModels}`, "golf.babylon");
     }
     
     export class AudioFiles

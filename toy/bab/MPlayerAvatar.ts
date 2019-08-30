@@ -19,7 +19,7 @@ const collisionBlockMargin : number = .2; // large for debug
 
 export const DEBUG_SPHERE_DIAMETER : number = 2;
 export const PLAYER_GRAVITY : number = -3;
-export const MAX_HEALTH : number = 5;
+export const MAX_HEALTH : number = 25;
 
 
 const corners : Array<Vector3> = [
@@ -73,15 +73,17 @@ export class MPlayerAvatar implements Puppet
         assetBook : MLoader.AssetBook
     )
     {
-        this.mesh = MeshBuilder.CreateSphere(`${_name}`, {diameter : DEBUG_SPHERE_DIAMETER / 3}, _scene); // happy tsc.mesh will be set elsewhere
+        // NOTE: root mesh is the only mesh that receives ray casts right now (would we want to cast against children as well? for firing checks?)
+        this.mesh = MeshBuilder.CreateSphere(`${_name}`, {diameter : DEBUG_SPHERE_DIAMETER }, _scene); // happy tsc.mesh will be set elsewhere
         this.mesh.checkCollisions = true;
-        this.mesh.ellipsoid = new Vector3(1,1,1);
+        // this.mesh.ellipsoid = new Vector3(1,1,1).scale(DEBUG_SPHERE_DIAMETER); // ellipsoid only for collisions, which we do manually
         this.mesh.position.copyFromFloats(_startPos.x, _startPos.y, _startPos.z);
         this.fireIndicatorMesh = this.setupFireIndicatorMesh(); // make tsc happy
         this.debugHitPointMesh = MeshBuilder.CreateBox(`dbg-hit-point-${_name}`, { size : .5}, _scene);
         // this.toggleFireIndicator(false);
 
-        this.importCharacter(_name, _scene, _startPos);
+        //this.importCharacter(_name, _scene, _startPos);
+        this.importCharacterFromBook(assetBook);
 
         this.debugRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
         this.fireRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
@@ -102,34 +104,23 @@ export class MPlayerAvatar implements Puppet
         w.meshSet.main.setPositionWithLocalVector(new Vector3(-1, 0, 2));
     }
 
-    private importCharacter(_name : string, _scene : Scene, _pos : Vector3) : void
+    private importCharacterFromBook(assetBook : MLoader.AssetBook) : void 
     {
-        SceneLoader.ImportMesh( null, './models/', 'golf.babylon', _scene, (meshes, particleSystems, animationGroups) => {
-            meshes.forEach((m) => {
-                console.log(`${_name}: char import: ${m.name}`);
-                //if(m.name === 'Head') {
-                    this.characterImportCallback(<Mesh>m, _name, _scene, _pos);
-                //}
+        let task = assetBook.getMeshTask(MLoader.MeshFiles.Instance.player.getKey());
+        if(task === undefined) throw new Error(`no player mesh task`);
 
-                // console.log(`num anims on mesh m: ${m.animations.length}`);
-                // m.animations.forEach((anim : Animation, index : number, array : Animation[]) => {
-                //     console.log(`begin anim: ${anim.name}`);
-                //     _scene.beginAnimation(anim, 0, 100, true);
-                // });
-            });
-
-            console.log(`num anim groups: ${animationGroups.length}`);
-            // animationGroups.forEach((skel : Skeleton, idx : number, array : Skeleton[]) => {
-            //     console.log(`anim: ${skel.name} idx: ${idx}, skels: ${JSON.stringify(array)}`);
-            // });
+        task.loadedMeshes.forEach((m : AbstractMesh) => {
+            this.meshImportCallback(<Mesh> m, this.mesh.name, this.mesh.getScene(), Vector3.Zero());
         });
     }
-    
-    private characterImportCallback(m : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
+
+    private meshImportCallback(m : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
     {
         //m.name = `${_name}-body`;
         Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
-        m.material = new GridMaterial(`mat-${_name}`, _scene);
+        let charMat = new GridMaterial(`mesh-mat-${_name}`, _scene);
+        charMat.mainColor = Color3.Purple();
+        m.material = charMat;
         
         // this.mesh.isPickable = false;
         m.parent = this.mesh;
@@ -137,13 +128,6 @@ export class MPlayerAvatar implements Puppet
         
     }
 
-    private makeNoseMesh() : void 
-    {
-        let nose = MeshBuilder.CreateBox('nose', { size : DEBUG_SPHERE_DIAMETER * .3}, this.mesh.getScene());
-        Tags.AddTagsTo(nose, GameEntityTags.InvisibleToRaycasts);
-        nose.parent = this.mesh;
-        nose.setPositionWithLocalVector(new Vector3(0, 0, DEBUG_SPHERE_DIAMETER * .4));
-    }
 
     getInterpData() : InterpData 
     {
@@ -262,6 +246,12 @@ export class MPlayerAvatar implements Puppet
 
         this.arsenal.equipped().fire(duh);
 
+        return this.getFireRay(forward);
+    }
+
+    getFireRay(forward : Vector3) : Nullable<PickingInfo>
+    {
+        
         this.debugLastFireDir.copyFrom(forward);
         let ray = new Ray(this.mesh.position.clone(), forward, 30); 
         let pi = this.mesh.getScene().pickWithRay(ray, (mesh) => {

@@ -5,7 +5,7 @@ import { MClient } from "./MClient";
 import * as MCli from "./MClient";
 // import { Fakebase } from "./Fakebase";
 import { MUtils } from "./Util/MUtils";
-import { Scene, Vector3, Tags, Nullable, Color3, Mesh, AbstractMesh, Ray, MeshBuilder } from "babylonjs";
+import { Scene, Vector3, Tags, Nullable, Color3, Mesh, AbstractMesh, Ray, MeshBuilder, RayHelper, PickingInfo } from "babylonjs";
 import { GameMain, TypeOfGame, GameEntityTags } from "./GameMain";
 import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
@@ -214,6 +214,7 @@ export class MServer
         this.simulateTimer.tick(this.game.engine.getDeltaTime(), ()=> {
             // this.EnqueueIncomingCliCommands();
             this.processCliCommands();
+            // this.debugDoTestFire();
             // this.debugPutShadowsInRewindState();
         });
         
@@ -266,7 +267,7 @@ export class MServer
             if(playerEnt != undefined)
             {
                 playerEnt.applyCliCommandServerSide(qcmd.cmd);
-                this.handleFire(playerEnt, qcmd);
+                this.handleFire(playerEnt, qcmd, true);
 
                 // fake decrement health
                 if(qcmd.cmd.debugTriggerKey) {
@@ -325,6 +326,23 @@ export class MServer
             }
         }
         this.DebugClis();
+    }
+
+    private debugDoTestFire() : void
+    {
+        if(this.currentState.lookup.keys().length < 2) { return; }
+
+        let k = this.currentState.lookup.keys()[0];
+        let ent = this.currentState.lookup.getValue(k);
+        if(!ent) return;
+        let plent = ent.getPlayerEntity();
+        if(!plent) return;
+
+        let fakeCMD = new CliCommand();
+        fakeCMD.fire = KeyMoves.DownUpHold.Down;
+        fakeCMD.forward = plent.playerPuppet.mesh.forward;
+        let fakeqcmd = new QueuedCliCommand(fakeCMD, plent.netId, -1);
+        this.handleFire(plent, fakeqcmd, true);
     }
 
     private interpolateForShadows() : void // DEBUG: will interpolate shadows
@@ -399,18 +417,26 @@ export class MServer
     //     return null;
     // }
 
+    private DEBUG_INCLUDE_REWIND : boolean = true;
+    private debugFireRayH : RayHelper = new RayHelper(new Ray(Vector3.Zero(), Vector3.One(), 1));
+
     // rewind time for all players (except the firer) (who should be in the latest place, per latest commands)
-    private handleFire(firingPlayer : MNetworkPlayerEntity, qcmd : QueuedCliCommand) : void
+    private handleFire(firingPlayer : MNetworkPlayerEntity, qcmd : QueuedCliCommand, debugTestFire ? : boolean) : void
     {
         let cliCommand = qcmd.cmd;
         
-        if(!firingPlayer.playerPuppet.arsenal.equipped().shouldFire(cliCommand.fire)) return;
+        //if(!debugTestFire)
+            if(!firingPlayer.playerPuppet.arsenal.equipped().shouldFire(cliCommand.fire)) return;
         // if(pickingInfo === null) return;
         // if(!KeyMoves.IsDown(cliCommand.fire)) return;
         
-        firingPlayer.recordWeaponFired();
+        //if(!debugTestFire)
+            firingPlayer.recordWeaponFired();
+
+        // TODO: isolate. for example. don't even rewind state (maybe this messes with us?)
+        // with rewind disabled. check if rays behave
         
-        if(!this.rewindState(this.currentState, firingPlayer, qcmd.arrivedTimestamp)) { 
+        if(this.DEBUG_INCLUDE_REWIND && !this.rewindState(this.currentState, firingPlayer, qcmd.arrivedTimestamp)) { 
             console.log(`rewind failed`);
             MUtils.SetGridMaterialColor(this.debugFirePointMesh.material, new Color3(.3, .7, .8));
             return; 
@@ -436,22 +462,32 @@ export class MServer
         
         // render the scene here. Seems needed to get the rewound position to register before raycasting
         this.game.scene.render();
-        let pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.fire, cliCommand.forward);
-
+        let pickingInfo : Nullable<PickingInfo> = null;
+        pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.fire, cliCommand.forward);
 
         //DEBUG
-        let debugFireStr = "";
+        let debugFireStr = "DBUG";
         if(pickingInfo) {
-            debugFireStr = pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray ? " will hit: " : `won't hit `;
-             debugFireStr += `${firingPlayer.netId} shot at ${(pickingInfo.pickedMesh ? pickingInfo.pickedMesh.name : 'null mesh? ')}`;
-             debugFireStr += ` hit ${pickingInfo.hit}`;
-             debugFireStr += pickingInfo.ray === null ? ' null ray ' : ' yes ray ';
+            debugFireStr += pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray ? " will hit: " : `won't hit `;
+            debugFireStr += `${firingPlayer.netId} shot at ${(pickingInfo.pickedMesh ? pickingInfo.pickedMesh.name : 'null mesh? ')}`;
+            debugFireStr += ` hit ${pickingInfo.hit}`;
+            debugFireStr += pickingInfo.ray === null ? ' null ray ' : ' yes ray ';
         }
         else debugFireStr = `fire missed`;
-        
 
+        // MORE DEBUG: RAY
+        if(debugTestFire) {
+            this.debugFireRayH.hide();
+            this.debugFireRayH.dispose();
+        }
+        //END-DEBUG
+        
         if(pickingInfo && pickingInfo.hit && pickingInfo.pickedMesh && pickingInfo.ray)
         {
+            //DEBUG
+            let debugHitAPlayer = 0;
+            if(debugTestFire) this.debugFireRayH.ray = pickingInfo.ray;
+
             //DEBUG
             if(pickingInfo.pickedPoint) {
                 this.debugHitPointMesh.position = pickingInfo.pickedPoint;
@@ -463,9 +499,12 @@ export class MServer
             if(tgs && tgs.indexOf(GameEntityTags.PlayerObject) >= 0) 
             {
                 // maybe will need: a way of hitting objects attached to player (whose names are not identical to netId for player)
+                debugHitAPlayer++;
                 let hitPlayer = <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(pickingInfo.pickedMesh.name);
                 if(hitPlayer != undefined && hitPlayer != null) 
                 {
+                    debugHitAPlayer++;
+
                     MUtils.SetGridMaterialColor(this.debugHitPointMesh.material, new Color3(.1, .4, 1)); //DEBUG
 
                     let netIdLookup = hitPlayer.netId; // pickingInfo.pickedMesh.name; // for now
@@ -477,17 +516,22 @@ export class MServer
                         pickingInfo.pickedPoint ? pickingInfo.pickedPoint : Vector3.Zero());
 
                     let beforeHealth = hitPlayer.health;
-                    hitPlayer.getHitByProjectile(prInfo);
-                    debugFireStr += ` ${hitPlayer.netId} got hit`;
 
-                    // became dead?
-                    if(beforeHealth > 0 && hitPlayer.health <= 0) {
-                        this.confirmableBroadcasts.push(new MExitDeath(
-                            hitPlayer.netId,
-                            firingPlayer.netId,
-                            pickingInfo.ray,
-                            'wasted'
-                        ));
+                    //if(!debugTestFire)
+                    {
+                        hitPlayer.getHitByProjectile(prInfo);
+                        debugFireStr += ` ${hitPlayer.netId} got hit`;
+                        
+                        // became dead?
+                        if(beforeHealth > 0 && hitPlayer.health <= 0) 
+                        {
+                            this.confirmableBroadcasts.push(new MExitDeath(
+                                hitPlayer.netId,
+                                firingPlayer.netId,
+                                pickingInfo.ray,
+                                'wasted'
+                                ));
+                        }
                     }
 
                     // //DEBUG place shadow at hit pos
@@ -495,13 +539,18 @@ export class MServer
                     //     hitPlayer.shadow.position = hitPlayer.position;
                 }
             }
+            
+            if(debugTestFire)
+                this.debugFireRayH.show(this.game.scene, debugHitAPlayer == 0 ? Color3.White() : (debugHitAPlayer == 1 ? new Color3(1, .5, .5) : Color3.Red()));
+            
         }
         //DEBUG
         else if(pickingInfo) {
             console.log(`hit? ${pickingInfo.hit}, mesh? ${pickingInfo.pickedMesh !== null}, ray? ${pickingInfo.ray !== null} `);
         }
 
-        this.revertStateToPresent(this.currentState);
+        if(this.DEBUG_INCLUDE_REWIND)
+            this.revertStateToPresent(this.currentState);
 
         //DEBUG
         console.log(debugFireStr);

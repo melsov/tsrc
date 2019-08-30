@@ -102,7 +102,7 @@ export class MWorldState
                         }
                     }
 
-                    MWorldState._debugRH.show(scene, relevancy > MServer.Relevancy.NOT_RELEVANT ?  Color3.Red() : Color3.Yellow());
+                    // DISABLE REL RAY // MWorldState._debugRH.show(scene, relevancy > MServer.Relevancy.NOT_RELEVANT ?  Color3.Red() : Color3.Yellow());
                     if(relevancy === MServer.Relevancy.RECENTLY_RELEVANT) {
                         break;
                     }
