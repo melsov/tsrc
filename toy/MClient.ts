@@ -102,6 +102,7 @@ export class MClient
         private send : (msg : string) => void
     ) 
     {
+        this.lobbyUI.showHide(true);
         this.DebugClientNumber = g_howManyClientsSoFar++;
         
         this.playerEntity = new ClientControlledPlayerEntity(this.user.UID); // MNetworkPlayerEntity(this.user.UID);
@@ -283,6 +284,14 @@ export class MClient
         //     this.playerEntity.teleport(this.playerEntity.position.add(new Vector3(0, 0, 3)));
         //     console.log(`go wrong place ${this.playerEntity.position}`);
         // }
+
+        if(command.debugTriggerKey) {
+            if(this.fpsCam.offset.lengthSquared() > .00001) {
+                this.fpsCam.offset = Vector3.Zero();
+            } else {
+                this.fpsCam.offset = new Vector3(0, 3, -3);
+            }
+        }
         
         command.debugPosAfterCommand = this.playerEntity.position;
 

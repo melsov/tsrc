@@ -17,10 +17,13 @@ export class MLocalPeer
     public readonly lsRoomAgent : ListenServerRoomAgent;
     private client : Nullable<MClient> = null;
     private server : Nullable<MServer> = null;
-
+    
+    
     constructor(
         room : string,
         user : tfirebase.User,
+        //public mapPackage : Nullable<MLoader.MapPackage>,
+        private statusCallback : (isServer : boolean) => void,
     )
     {
 
@@ -31,24 +34,34 @@ export class MLocalPeer
         this.lsRoomAgent = new ListenServerRoomAgent(room, user, (isServer : boolean) => {
             this.handleOnIsServer(isServer);
         })
-
+        
         this.lsRoomAgent.init();
     }
 
     private handleOnIsServer(isServer : boolean)
     {
         // TODO: load assets
-        let mapPackage = new MLoader.MapPackage(MLoader.MapID.TheOnlyMap, isServer ? TypeOfGame.Server : TypeOfGame.ClientA);
-        mapPackage.LoadAll((mpackage : MLoader.MapPackage) => {
-            // callback:
-            if(isServer) {
-                this.createServer(new GameMain(mpackage)); // TypeOfGame.Server));
-            } else {
-                this.createClient(new GameMain(mpackage)); // TypeOfGame.ClientA));
-            }
-            // this.handleAssetsFinishedLoading(isServer, new GameMain(isServer ? TypeOfGame.Server : TypeOfGame.ClientA));
-
-        });
+        // if(this.mapPackage === null)
+        // {
+            let mapPackage = new MLoader.MapPackage(MLoader.MapID.TheOnlyMap, isServer ? TypeOfGame.Server : TypeOfGame.ClientA);
+            mapPackage.LoadAll((mpackage : MLoader.MapPackage) => {
+                
+                if(isServer) {
+                    this.createServer(new GameMain(mpackage)); // TypeOfGame.Server));
+                } else {
+                    this.createClient(new GameMain(mpackage)); // TypeOfGame.ClientA));
+                }
+                // callback here if, in case we want a listen server client
+                this.statusCallback(isServer);
+            });
+        // }
+        // else {
+        //     if(isServer) {
+        //         this.createServer(new GameMain(this.mapPackage)); // TypeOfGame.Server));
+        //     } else {
+        //         this.createClient(new GameMain(this.mapPackage)); // TypeOfGame.ClientA));
+        //     }
+        // }
 
     }
 

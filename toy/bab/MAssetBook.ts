@@ -42,6 +42,8 @@ export namespace MLoader
                 callback(this);
             });
         }
+
+        
     }
 
     export class Loadable

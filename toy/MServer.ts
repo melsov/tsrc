@@ -131,6 +131,7 @@ export class MServer
         this.game.init();
         this.puppetMaster = new MPuppetMaster(this.game.mapPackage);
 
+        //if(!_wan)
         this.lobbyUI.showHide(false);
 
         this.debugHitPointMesh = MeshBuilder.CreateCylinder(`srvr-show-hit-debug`, {

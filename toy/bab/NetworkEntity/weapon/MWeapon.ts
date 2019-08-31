@@ -43,12 +43,13 @@ export namespace WeaponMeshImport
     export function FindMeshSet(meshes : AbstractMesh[]) : WeaponMeshSet
     {
         let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
+
         for(let i=0; i<meshes.length; ++i) {
             let m = meshes[i];
             if(m.name == 'muzzle') {
-                muzzle = m;
+                muzzle = (<Mesh> m).clone(); // muzzle not parented to main. makes importing slightly more straightfoward possibly.
             } else {
-                main = <Mesh>m;
+                main = (<Mesh> m).clone();
             }
         }
         if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
@@ -56,42 +57,42 @@ export namespace WeaponMeshImport
         return new WeaponMeshSet(main, muzzle);
     }
 
-    export function CreateWeaponMeshSet(fileName : string, scene : Scene, onSuccess : (weapMeshSet : WeaponMeshSet) => void) : void 
-    {
-        SceneLoader.ImportMesh(null, `./models/${folder}/`, fileName, scene, 
-            (meshes : AbstractMesh[], particleSystems : IParticleSystem[], skels : Skeleton[], animGroups : AnimationGroup[]) => {
-                // let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
-                // for(let i=0; i<meshes.length; ++i) {
-                //     let m = meshes[i];
-                //     if(m.name == 'muzzle') {
-                //         muzzle = m;
-                //     } else {
-                //         main = <Mesh>m;
-                //     }
-                // }
-                // if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
+    // export function CreateWeaponMeshSet(fileName : string, scene : Scene, onSuccess : (weapMeshSet : WeaponMeshSet) => void) : void 
+    // {
+    //     SceneLoader.ImportMesh(null, `./models/${folder}/`, fileName, scene, 
+    //         (meshes : AbstractMesh[], particleSystems : IParticleSystem[], skels : Skeleton[], animGroups : AnimationGroup[]) => {
+    //             // let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
+    //             // for(let i=0; i<meshes.length; ++i) {
+    //             //     let m = meshes[i];
+    //             //     if(m.name == 'muzzle') {
+    //             //         muzzle = m;
+    //             //     } else {
+    //             //         main = <Mesh>m;
+    //             //     }
+    //             // }
+    //             // if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
     
-                let meshSet = FindMeshSet(meshes); // new WeaponMeshSet(main, muzzle);
-            onSuccess(meshSet);
-        });
-    }
+    //             let meshSet = FindMeshSet(meshes); // new WeaponMeshSet(main, muzzle);
+    //         onSuccess(meshSet);
+    //     });
+    // }
 
     // this is why we need to pre-load assets
-    export function CreateWeaponLazyLoadMeshSet<T extends MAbstractWeapon>(
-        meshSetFileName : string, 
-        scene : Scene, 
-        c : new(mset : WeaponMeshSet) => T,
-        onLoaded : (weap : T) => void) : T 
-    {
-        let weap = new c(WeaponMeshSet.MakePlaceholder(scene));
-        CreateWeaponMeshSet(meshSetFileName, scene, (weapMeshSet) => {
-            weap.meshSet.dispose();
-            weap.meshSet = weapMeshSet;
-            onLoaded(weap);
-        });
+    // export function CreateWeaponLazyLoadMeshSet<T extends MAbstractWeapon>(
+    //     meshSetFileName : string, 
+    //     scene : Scene, 
+    //     c : new(mset : WeaponMeshSet) => T,
+    //     onLoaded : (weap : T) => void) : T 
+    // {
+    //     let weap = new c(WeaponMeshSet.MakePlaceholder(scene));
+    //     CreateWeaponMeshSet(meshSetFileName, scene, (weapMeshSet) => {
+    //         weap.meshSet.dispose();
+    //         weap.meshSet = weapMeshSet;
+    //         onLoaded(weap);
+    //     });
 
-        return weap;
-    }
+    //     return weap;
+    // }
     
 }
 

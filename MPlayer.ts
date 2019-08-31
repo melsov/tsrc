@@ -33,6 +33,14 @@ export namespace tfirebase
         public debug() {
             return `tF.User: ${this.UID}, name: ${this.displayName}, color: ${this.color}`;
         }
+
+        public clone() : User 
+        {
+            let c = new User(this.UID, this.displayName, this.color);
+            c.isServer = this.isServer;
+            return c;
+        }
+
     }
 }
 

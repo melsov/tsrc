@@ -5,6 +5,7 @@ export class FPSCam
 
     public zoomedOutFOVRadians : number = 1.2;
     public zoomedInFOVRadians : number = .3;
+    public offset : Vector3 = Vector3.Zero();
 
     constructor(
         public readonly cam : UniversalCamera,
@@ -24,14 +25,16 @@ export class FPSCam
         return Vector3.Cross(Vector3.Up(), this.forward());
     }
 
+    private get targetPosition() : Vector3 { return this.followTarget.position.add(this.offset); }
+
     renderTick() : void
     {
-        this.cam.position = Vector3.Lerp(this.cam.position, this.followTarget.position, .5);
+        this.cam.position = Vector3.Lerp(this.cam.position, this.targetPosition, .5);
     }
 
     snapToTarget() : void
     {
-        this.cam.position = this.followTarget.position;
+        this.cam.position = this.targetPosition;
     }
 
     toggleFOV(shouldZoom : boolean) : void

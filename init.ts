@@ -48,12 +48,12 @@ import { MLocalPeer } from './MPeer';
 
 //var player : LocalPlayer;
 let localPeer : MLocalPeer;
-
+let localClientPeerListenServer : MLocalPeer;
 
 var fbaseUser : tfirebase.User;
 
 const useMSPeer = <HTMLInputElement> document.getElementById("useMSPeer");
-
+var _wantListenServer : boolean = true;
 
 export function init()
 {
@@ -81,20 +81,27 @@ function SetupClient()
     });
 }
 
-
 function EnterLobby()
 {
-    localPeer = new MLocalPeer("roomabc", fbaseUser);
+    let room = "roomabc";
+    localPeer = new MLocalPeer(room, fbaseUser, (isServer : boolean) => {
+        if(isServer && _wantListenServer) {
+            let userClone = fbaseUser.clone();
+            userClone.isServer = false;
+            userClone.UID = `${userClone.UID}-LS`;
+            console.warn(`creating listen server client`);
+            localClientPeerListenServer = new MLocalPeer(room, userClone, (isServer : boolean) => {});
+        }
+    });
 
     window.onbeforeunload =  () => {
         // if we don't await. does this always happen?
         localPeer.onClose();
+        if(localClientPeerListenServer !== undefined) {
+            localClientPeerListenServer.onClose();
+        }
     };
-
-   
 }
-
-
 
 var readyCount = 0;
 var isSendReady = false;
@@ -128,8 +135,8 @@ function fakeUserConfig() : tfirebase.User
 
 
 
-function SetupClientFake()
-{
-    fbaseUser = fakeUserConfig(); //  new tfirebase.User(fakeUID());
-    EnterLobby();
-}
+// function SetupClientFake()
+// {
+//     fbaseUser = fakeUserConfig(); //  new tfirebase.User(fakeUID());
+//     EnterLobby();
+// }

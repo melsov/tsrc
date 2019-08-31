@@ -21,6 +21,7 @@ export const DEBUG_SPHERE_DIAMETER : number = 2;
 export const PLAYER_GRAVITY : number = -3;
 export const MAX_HEALTH : number = 25;
 
+//TODO: (global) test running server on a headless chrome instance
 
 const corners : Array<Vector3> = [
     new Vector3(1, 0, 1), 
@@ -75,6 +76,7 @@ export class MPlayerAvatar implements Puppet
     {
         // NOTE: root mesh is the only mesh that receives ray casts right now (would we want to cast against children as well? for firing checks?)
         this.mesh = MeshBuilder.CreateSphere(`${_name}`, {diameter : DEBUG_SPHERE_DIAMETER }, _scene); // happy tsc.mesh will be set elsewhere
+        Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
         this.mesh.checkCollisions = true;
         // this.mesh.ellipsoid = new Vector3(1,1,1).scale(DEBUG_SPHERE_DIAMETER); // ellipsoid only for collisions, which we do manually
         this.mesh.position.copyFromFloats(_startPos.x, _startPos.y, _startPos.z);
@@ -114,16 +116,17 @@ export class MPlayerAvatar implements Puppet
         });
     }
 
-    private meshImportCallback(m : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
+    private meshImportCallback(orig : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
     {
         //m.name = `${_name}-body`;
-        Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
+        let m = orig.clone(`${_name}-body`, this.mesh);
+        // Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
         let charMat = new GridMaterial(`mesh-mat-${_name}`, _scene);
         charMat.mainColor = Color3.Purple();
         m.material = charMat;
         
         // this.mesh.isPickable = false;
-        m.parent = this.mesh;
+        // m.parent = this.mesh;
 
         
     }
