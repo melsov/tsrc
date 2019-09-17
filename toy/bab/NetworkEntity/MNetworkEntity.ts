@@ -145,13 +145,6 @@ export class OtherPlayerInterpolation
     public timestamp : number = 0;
 }
 
-// TODO: a single interp data class. <--YES PLEASE
-// right now OtherPlayerInterpolation, CliTarget and SendData
-// all replicate a variable (position).
-// This will get messy once there is more data to interpolate across 
-// the three of them
-
-
 export class CliTarget
 {
     // public position : Vector3 = new Vector3();
@@ -191,7 +184,7 @@ function FromToInterp(a : OtherPlayerInterpolation, b : OtherPlayerInterpolation
 
     return opi;
 } 
-
+ 
 //
 // MNetworkPlayerEntity manages syncing itself over
 // a network. Receives/sends SendDataPlayerEntity objects

@@ -179,14 +179,37 @@ export class MClient
             this.requestLoadOutFunc = () => {};
             this.loop = this.inGameRenderLoop;
         }
-        else if(this.stageOfLifeType === StageType.Alive && next === StageType.DeadConfigureLoadout) {
+        else if(this.stageOfLifeType === StageType.Alive && next === StageType.Bardo) {
+            this.lobbyUI.showHide(true);
+            this.input.exitPointerLock(this.game.canvas, this.game.scene);
+            this.stageOfLifeType = next;
+            this.doBardoTimeout(() => {
+                this.handleLifeTransition(StageType.DeadConfigureLoadout);
+            });
+        }
+        else if(this.stageOfLifeType === StageType.Bardo && next === StageType.DeadConfigureLoadout) {
             console.warn(`loop will be choose lo`);
             // TODO: be dead for a bit
+            this.lobbyUI.showEnterButton();
             this.lobbyUI.showHide(true);
             this.input.exitPointerLock(this.game.canvas, this.game.scene);
             this.loop = this.chooseLoadOutRenderLoop;
         }
         this.stageOfLifeType = next;
+    }
+
+    private doBardoTimeout(callback : () => void) : void 
+    {
+        let handle = -1;
+        let remaining = MServer.AwaitRespawnExpandedSeconds;
+        handle = window.setInterval(() => {
+            console.log(`bardo: ${remaining}`);
+            this.lobbyUI.showCountDown(remaining);
+            if(--remaining === 0) {
+                window.clearInterval(handle);
+                callback();
+            }
+        }, MServer.MillisPerExpandedSeconds);
     }
 
     private handleEnterGamePressed() : void 
@@ -204,6 +227,7 @@ export class MClient
             //this.sendLoadOutRequest();
             this.requestLoadOutFunc();
             this.processServerUpdates();
+            // TODO: check whether we log out of firebase if we leave during this loop
         });
     }
 
@@ -496,7 +520,7 @@ export class MClient
 
             if(ed.deadNetId === this.user.UID) {
                 // we died
-                this.handleLifeTransition(StageType.DeadConfigureLoadout);
+                this.handleLifeTransition(StageType.Bardo);
                 // TODO: mid screen bold announcement
             }
             this.messageBoard.add( new MAnnouncement(`${ed.killerName} ${ed.colorCommentary} ${ed.deadNetId}`) );

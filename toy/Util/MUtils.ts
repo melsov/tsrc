@@ -1,4 +1,4 @@
-import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable } from "babylonjs";
+import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToProperty } from "babylonjs";
 import { BHelpers } from "../MBabHelpers";
 import { GridMaterial } from "babylonjs-materials";
 
@@ -38,13 +38,6 @@ export namespace MUtils
         return result;
     }
 
-    export function StringArrayContains(arr : Array<string>, str : string)
-    {
-        arr.forEach((s : string) => {
-            if(s === str) return true;
-        })
-        return false;
-    }
 
     export function AssertVecNotNan(v : Vector3, err ? : string) { Assert(!VecContainsNan(v), err != undefined ? err : `vec was nan ${v}`); }
 
@@ -146,6 +139,12 @@ export namespace MUtils
         let gmat = <GridMaterial> mat;
         gmat.mainColor = c;
         if(lineColor) gmat.lineColor = lineColor;
+    }
+
+    export function StringArrayContains(arr : string[], searchStr : string) : boolean
+    {
+        for(let i=0; i<arr.length; ++i) { if(arr[i] === searchStr) return true; }
+        return false;
     }
 
 }

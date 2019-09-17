@@ -85,11 +85,13 @@ function EnterLobby()
 {
     let room = "roomabc";
     localPeer = new MLocalPeer(room, fbaseUser, (isServer : boolean) => {
+
+        // add a client for listen server
         if(isServer && _wantListenServer) {
             let userClone = fbaseUser.clone();
             userClone.isServer = false;
             userClone.UID = `${userClone.UID}-LS`;
-            console.warn(`creating listen server client`);
+            console.log(`creating listen server client`);
             localClientPeerListenServer = new MLocalPeer(room, userClone, (isServer : boolean) => {});
         }
     });
@@ -114,7 +116,8 @@ const readyCallback = function(readyState : RTCDataChannelState) {
     }
 }
 
-
+// TODO: plan. how many PI wedges do we need for rotations
+// lower wedge resolution leads to greater compression
 
 const fakeNames : Array<string> = ['jill', 'bill', 'greg', 'mofo'];
 function fakeUID() : string {

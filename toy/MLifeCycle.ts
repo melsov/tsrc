@@ -24,8 +24,8 @@ export class LifeStage
 export enum StageType
 {
     NotConnected = 1,
-    DeadConfigureLoadout,
-    AwaitingRespawn,
+    Bardo, // waiting on respawn timer
+    DeadConfigureLoadout, // optionally can configure and can click respawn 
     Alive,
 }
 

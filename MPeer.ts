@@ -37,7 +37,7 @@ export class MLocalPeer
         
         this.lsRoomAgent.init();
     }
-
+ 
     private handleOnIsServer(isServer : boolean)
     {
         // TODO: load assets

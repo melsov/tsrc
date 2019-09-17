@@ -1,7 +1,7 @@
 import { Animation, TransformNode, Scene, Engine, Mesh, Color3, Vector3, Ray, RayHelper, MeshBuilder, PickingInfo, Nullable, Tags, AbstractMesh, Camera, Vector4, Quaternion, SceneLoader, Skeleton } from "babylonjs";
 import { GridMaterial } from "babylonjs-materials";
 import { MNetworkPlayerEntity, MNetworkEntity, CliTarget as EnTarget, CliTarget, InterpData } from "./NetworkEntity/MNetworkEntity";
-import { Puppet, MLoadOut as MPuppetSkin } from "./MPuppetMaster";
+import { Puppet, MLoadOut as MPuppetSkin, MLoadOut } from "./MPuppetMaster";
 import { MUtils } from "../Util/MUtils";
 import { GameEntityTags, g_main_camera_name } from "../GameMain";
 import { ProjectileType, MProjectileHitInfo } from "./NetworkEntity/transient/MProjectileHitInfo";
@@ -13,6 +13,7 @@ import { MAudio } from "../manager/MAudioManager";
 import { WeaponMeshImport, MHandGun } from "./NetworkEntity/weapon/MWeapon";
 import { MLoader } from "./MAssetBook";
 import { MArsenal } from "./NetworkEntity/weapon/MArsenal";
+// import undefined = require("firebase/empty-import");
 
 const physicsNudgeDist : number = .01;
 const collisionBlockMargin : number = .2; // large for debug
@@ -65,13 +66,14 @@ export class MPlayerAvatar implements Puppet
     private debugHitPointMesh : Mesh;
 
     public readonly arsenal : MArsenal;
+    private weaponRoot : TransformNode;
 
     constructor
     (
         _scene : Scene,
         _startPos : Vector3,
         _name : string,
-        assetBook : MLoader.AssetBook
+        mapPackage : MLoader.MapPackage
     )
     {
         // NOTE: root mesh is the only mesh that receives ray casts right now (would we want to cast against children as well? for firing checks?)
@@ -85,7 +87,7 @@ export class MPlayerAvatar implements Puppet
         // this.toggleFireIndicator(false);
 
         //this.importCharacter(_name, _scene, _startPos);
-        this.importCharacterFromBook(assetBook);
+        this.importCharacterFromBook(mapPackage.assetBook);
 
         this.debugRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
         this.fireRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
@@ -93,30 +95,37 @@ export class MPlayerAvatar implements Puppet
 
         for(let i=0; i < this.headFeetCheckRays.length; ++i) { this.headFeetCheckRays[i] = new Ray(new Vector3(), new Vector3(), clearance * 3.1); } // debug shoudl be 1.1 not 3.1
 
-        this.arsenal = MArsenal.MakeDefault(assetBook);
+        this.arsenal = MArsenal.MakeDefault(mapPackage);
+        this.weaponRoot = new TransformNode(`weaponRoot`, _scene);
         this.setupDefaultWeapon();
 
     }
 
     private setupDefaultWeapon() : void 
     {
+        this.weaponRoot.parent = this.mesh;
+        this.weaponRoot.setPositionWithLocalVector(new Vector3(-1, 0, 2));
+        
         let w = this.arsenal.equipped();
-        w.meshSet.main.parent = this.mesh;
+        w.meshSet.main.parent = this.weaponRoot;
         // TODO: if cli owned. attach to camera
-        w.meshSet.main.setPositionWithLocalVector(new Vector3(-1, 0, 2));
     }
 
     private importCharacterFromBook(assetBook : MLoader.AssetBook) : void 
     {
-        let task = assetBook.getMeshTask(MLoader.MeshFiles.Instance.player.getKey());
-        if(task === undefined) throw new Error(`no player mesh task`);
+        let loadedMeshData = assetBook.getMeshTask(MLoader.MeshFiles.Instance.player.getKey());
+        if(loadedMeshData === undefined) throw new Error(`no player mesh task`);
+        if(loadedMeshData.task === undefined) throw new Error(`no mesh task for ${MLoader.MeshFiles.Instance.player.getKey()}`);
 
-        task.loadedMeshes.forEach((m : AbstractMesh) => {
-            this.meshImportCallback(<Mesh> m, this.mesh.name, this.mesh.getScene(), Vector3.Zero());
+        loadedMeshData.task.loadedMeshes.forEach((m : AbstractMesh) => {
+            this.meshImport(<Mesh> m, this.mesh.name, this.mesh.getScene(), Vector3.Zero());
         });
+
+        // We actually get our mesh from 
+        // TODO: we own an MSkeletonAnimator
     }
 
-    private meshImportCallback(orig : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
+    private meshImport(orig : Mesh, _name : string, _scene : Scene, _startPos : Vector3) : void 
     {
         //m.name = `${_name}-body`;
         let m = orig.clone(`${_name}-body`, this.mesh);

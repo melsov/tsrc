@@ -38,12 +38,12 @@ export class MArsenal
         this.index = this.index === 0 ? this.weapons.length - 1 : this.index - 1;
     }
 
-    static MakeDefault(assetBook : MLoader.AssetBook) : MArsenal
+    static MakeDefault(mapPackage : MLoader.MapPackage) : MArsenal
     {
         //TODO : make a weapon mesh set using asset book
 
         return new MArsenal([
-            MHandGun.CreateHandGun(assetBook),
+            MHandGun.CreateHandGun(mapPackage),
         ]);
     }
 

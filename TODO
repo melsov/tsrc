@@ -1,0 +1,46 @@
+
+make a map
+
+test play over the internet
+
+pick ups
+ammo depletion
+
+
+load-out, skins: dependent configurability
+based on
+type of sign-in 
+
+shop / currency
+
+compression scheme (delta updates, as well)
+
+test playing headless server with headless chrome
+
+dynamic room creation instead of 'roomabc'
+
+set up ads.
+ad play triggers
+
+
+set up sign ins
+
+listen server: mechanic for choosing which peer should be the listen server
+listen server: server migration (what could go wrong?)
+    servers can start up with an optional stateBuffer. i.e. the entire state buffer. and the client list 
+
+**before trying to set up a dedicated server**
+ --test cli listen server
+
+
+**strategy for running a server**
+ --run babylonjs and the server js code in node.
+ --for webrtc communications, use native c++ webrtc (and learn to magically call c++ from js)
+
+set up payment methods
+
+test running from an ec2
+
+setup custom stun/turn server? or get a service
+
+a touch / tap interface: (game seems to run on my old iphone) <-- use JQuery PEP + Bab: https://doc.babylonjs.com/how_to/interactions

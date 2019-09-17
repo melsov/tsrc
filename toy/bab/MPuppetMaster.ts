@@ -82,7 +82,7 @@ export class MPuppetMaster
             case EntityType.PLAYER:
             case undefined:
             default:                
-                return new MPlayerAvatar(this.mapPackage.scene, new Vector3(), ent.netId, this.mapPackage.assetBook); 
+                return new MPlayerAvatar(this.mapPackage.scene, new Vector3(), ent.netId, this.mapPackage); 
         }
     }
 

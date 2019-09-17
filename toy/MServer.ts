@@ -29,6 +29,9 @@ export const ServerSimulateTickMillis : number = 10;
 export const ServerBroadcastTickMillis : number = 20;
 const ServerRecalcPingTickMillis : number = 40;
 
+export const MillisPerExpandedSeconds : number = 1800; // a bit longer than standard seconds
+export const AwaitRespawnExpandedSeconds : number = 5;
+
 export const CLOSE_BY_RELEVANT_RADIUS : number = 4; // silly small for testing
 export const AUDIBLE_RADIUS : number = CLOSE_BY_RELEVANT_RADIUS;
 
@@ -51,6 +54,18 @@ class CliEntity
 
     public loadOut : Nullable<MLoadOut> = null;
     public readonly relevantBook : Collections.Dictionary<string, number> = new Collections.Dictionary<string, number>();
+
+    // Respawn
+    private _canRespawn : boolean = true;
+    get canRespawn() : boolean { return this._canRespawn; }
+    startRespawnTimer() : void 
+    {
+        if(!this._canRespawn) return;
+        this._canRespawn = false;
+        window.setTimeout(() => {
+            this._canRespawn = true;
+        }, AwaitRespawnExpandedSeconds * 1000);
+    }
 
     constructor(
         public remotePlayer : RemotePlayer
@@ -179,8 +194,9 @@ export class MServer
         this.currentState.lookup.setValue(user.UID, netPlayer);
         this.currentState.ackIndex = 1; // start with 1 to facilitate checking clients who have never ack'd
 
-        let bardoSpawnPos = this.clients.keys().length == 1 ? new Vector3(-3, 12, 0) : new Vector3(3, 12, 0);
-        console.warn(`bardo spawn to: ${bardoSpawnPos}`);
+        // TODO: better spawn point chooser
+        let bardoSpawnPos = this.clients.keys().length % 2 === 1 ? new Vector3(-3, 12, 0) : new Vector3(3, 12, 0);
+        console.warn(`out of game spawn to: ${bardoSpawnPos}`);
         netPlayer.teleport(bardoSpawnPos);
 
         remotePlayer.peer.recExtraCallback = (uid : string, e : MessageEvent) => {
@@ -251,7 +267,7 @@ export class MServer
         this.cmdQueue.enqueue(new QueuedCliCommand(MCli.CommandFromString(msg), uid, +new Date()));
     }
 
-    //TODO: players are either not starting in a spot that synced with server pos
+    // TODO: players are either not starting in a spot that synced with server pos
     // or evolving out of synced pos. 
     
     // process pending cli commands 
@@ -296,8 +312,9 @@ export class MServer
                 // confirm messages with return hashes
                 cli.confirmableMessageBook.confirmArray(qcmd.cmd.confirmHashes);
 
+                if(!cli.canRespawn) { console.log(`can't respawn ${qcmd.UID}`); }
                 // player loadout request
-                if(qcmd.cmd.loadOutRequest 
+                if(qcmd.cmd.loadOutRequest && cli.canRespawn
                     && (cli.loadOut === null || MLoadOut.GetHash(cli.loadOut) !== MLoadOut.GetHash(qcmd.cmd.loadOutRequest) ||
                     (playerEnt && playerEnt.health <= 0))
                 ) 
@@ -353,7 +370,7 @@ export class MServer
 
     private debugPutShadowsInRewindState() : void
     {
-        // //get player 1
+        // // get player 1
         // let first = this.currentState.lookup.getValue(this.currentState.lookup.keys()[0]);
         // if(first == undefined) return;
 
@@ -530,8 +547,13 @@ export class MServer
                                 hitPlayer.netId,
                                 firingPlayer.netId,
                                 pickingInfo.ray,
-                                'wasted'
-                                ));
+                                'wasted' ));
+
+                            // start respawn timer
+                            let hitCli = this.clients.getValue(hitPlayer.netId);
+                            if(hitCli) {
+
+                            }
                         }
                     }
 
@@ -798,7 +820,6 @@ export function UnpackWorldState(serverUpdateString : string) : ServerUpdate
     
     let su = new ServerUpdate(ws, jObj['lastInputNumber']); //ws;
     su.confirmableMessages = MAnnounce.FromServerUpdate(jObj);
-    
 
     return su;
 }
