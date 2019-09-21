@@ -6,6 +6,7 @@ export class FPSCam
     public zoomedOutFOVRadians : number = 1.2;
     public zoomedInFOVRadians : number = .3;
     public offset : Vector3 = Vector3.Zero();
+    public root : TransformNode;
 
     constructor(
         public readonly cam : UniversalCamera,
@@ -13,6 +14,9 @@ export class FPSCam
     ){
 
         this.cam.setTarget(this.cam.position.add(this.followTarget.forward.scale(5)));
+        this.root = new TransformNode("cam-root", this.followTarget.getScene());
+        this.root.position.copyFrom(this.cam.position);
+        this.root.parent = this.cam;
     }
 
     forward() : Vector3
@@ -29,11 +33,13 @@ export class FPSCam
 
     renderTick() : void
     {
+        // this.root.position = Vector3.Lerp(this.root.position, this.targetPosition, .5);
         this.cam.position = Vector3.Lerp(this.cam.position, this.targetPosition, .5);
     }
 
     snapToTarget() : void
     {
+        // this.root.position = this.targetPosition;
         this.cam.position = this.targetPosition;
     }
 

@@ -199,7 +199,7 @@ export class MSkeletonAnimator
     
             this._actionGroups.setValue(actionNames[i], ag);
         }
-    }
+    } 
 
     getAnimationGroup(actionName : string) : AnimationGroup
     {

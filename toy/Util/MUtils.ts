@@ -1,4 +1,4 @@
-import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToProperty } from "babylonjs";
+import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToProperty, AbstractMesh, Scene, TransformNode, Node } from "babylonjs";
 import { BHelpers } from "../MBabHelpers";
 import { GridMaterial } from "babylonjs-materials";
 
@@ -145,6 +145,25 @@ export namespace MUtils
     {
         for(let i=0; i<arr.length; ++i) { if(arr[i] === searchStr) return true; }
         return false;
+    }
+
+    export function RootifiedClone(rootName : string, meshes : AbstractMesh[], scene : Scene) : TransformNode
+    {
+        let root = new TransformNode(rootName, scene);
+        for(let i=0; i < meshes.length; ++i) 
+        {
+            let mesh = meshes[i];
+            if(mesh.parent === null) {
+                mesh.clone(`${mesh.name}`, root);
+            }
+        }
+        return root;
+    }
+
+    export function GetAllChildren(node : Node) : Node[]
+    {
+        // params: filter predicate , only direct children (default true)
+        return node.getChildren((n : Node) => { return true; }, false);
     }
 
 }

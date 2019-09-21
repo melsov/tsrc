@@ -80,7 +80,7 @@ export namespace MLoader
         }
 
         // readonly map : Loadable = new Loadable(folderModels, "relevant.babylon"); // want
-        readonly handgun : Loadable = new Loadable(folderWeapons, "handgun.babylon");
+        readonly shotgun : Loadable = new Loadable(folderWeapons, "shotgun.babylon");
         readonly player : Loadable = new Loadable(`${folderModels}`, "golf.babylon");
         readonly pillarDebug : Loadable = new Loadable(`${folderModels}`, "pillar.babylon");
     }
@@ -142,7 +142,8 @@ export namespace MLoader
         }
 
         // first load the animation file specs json file (use a separate assetmanager)
-        // The file spec file describes each entities .bab files (1 or more)
+        // The file spec file... 
+        // describes each entities .bab files (1 or possibly more .bab files though having only 1 is probably better for one's sanity)
         // and for each of these .bab files provides a list of animations/actions.
 
         // From the file specs file create an MEntityBabListLookup (organizer for these specifications)
@@ -159,7 +160,7 @@ export namespace MLoader
         // in the json file.
         // Only load the loadable if we didn't already load a mesh for it from the file specs json
         //
-        // WHen an skeleton animatable entity needs to come into existence, (MPlayerAvatar e.g.), make a new MSkeletonAnimator,
+        // WHen an skeleton animatable entity needs to come into existence, (in MPlayerAvatar e.g.), make a new MSkeletonAnimator,
         // lookup its anim/bone data from MEnityBabListLookup. add that data to the skeleton animator (addWithBook() or whatever we called it)
         // OKAAAYYYYYY....
         private loadMeshesFromBabList(debugMapId : MapID, onFinished : () => void) : void 

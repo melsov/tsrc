@@ -111,6 +111,12 @@ export class MPlayerAvatar implements Puppet
         // TODO: if cli owned. attach to camera
     }
 
+    setupClientPlayer(camRoot : TransformNode) : void 
+    {
+        this.weaponRoot.parent = camRoot;
+        this.weaponRoot.setPositionWithLocalVector(new Vector3(.2, -.1, 2));
+    }
+
     private importCharacterFromBook(assetBook : MLoader.AssetBook) : void 
     {
         let loadedMeshData = assetBook.getMeshTask(MLoader.MeshFiles.Instance.player.getKey());
@@ -645,14 +651,12 @@ export class MPlayerAvatar implements Puppet
     // set this as the interp target
     renderLoopTick(dt : number) : void 
     {
-        // console.log(`Bfr renloopTk: cliTrg: ${this.cliTarget.interpData.position}`);
         this.updateGrounded();
         this.didJumpStart.tick(dt / 1000.0);
         this.jumpCurve.tick(dt / 1000.0);
         this.applyGravity(dt);
         this.interpolateWithCliTargets();
-        
-        // console.log(`Aft renloopTk: cliTrg: ${this.cliTarget.interpData.position}`);
+
         this.debugShowHitTimer.tick(dt / 1000.0);
         this.toggleFireIndicator(this.debugShowHitTimer.value);
     }

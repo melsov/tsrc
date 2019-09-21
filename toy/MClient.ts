@@ -129,6 +129,8 @@ export class MClient
 
         this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh);
 
+        playerPuppet.setupClientPlayer(this.fpsCam.root);
+
         this.input.rightMouseToggle.callback = (isOn : boolean) => {
             this.fpsCam.toggleFOV(isOn);
         }

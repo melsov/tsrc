@@ -5,97 +5,49 @@ import { MUtils } from "../../../Util/MUtils";
 import { KeyMoves } from "../../MPlayerInput";
 import { MAudio } from "../../../manager/MAudioManager";
 import { MLoader } from "../../MAssetBook";
+import { MAnimator } from "../../../loading/MAnimator";
 
 
 
 export namespace WeaponMeshImport
 {
-    // const folder : string = "weapons";
-    // export class files {
-    //     static readonly handgun : string = "handgun.babylon"
 
-    // }
 
-    export function FindMeshSet(meshes : AbstractMesh[]) : WeaponMeshSet
+    export function FindMeshSet(meshes : AbstractMesh[], rootNodeName : string, scene : Scene) : WeaponMeshSet
     {
-        let main : Nullable<Mesh> = null; let muzzle : Nullable<TransformNode> = null;
+        let root = MUtils.RootifiedClone(rootNodeName, meshes, scene);
+        let children = MUtils.GetAllChildren(root);
+        let muzzle : Nullable<TransformNode> = null;
 
-        for(let i=0; i<meshes.length; ++i) {
-            let m = meshes[i];
-            if(m.name == 'muzzle') {
-                muzzle = (<Mesh> m).clone(); // muzzle not parented to main. makes importing slightly more straightfoward possibly.
-            } else {
-                main = (<Mesh> m).clone();
+        for(let i=0; i<children.length; ++i)
+        {
+            let m = children[i];
+            if(m.name.toLowerCase() === 'muzzle') {
+                muzzle = new TransformNode(m.name, scene);
+                muzzle.position = (<TransformNode>m).position;
+                muzzle.parent = m.parent;
+                m.dispose();
             }
         }
-        if(!main || !muzzle) throw new Error(`weapon mesh import failed. main mesh: ${main !== null}. muzzle: ${muzzle !== null} `);
 
-        return new WeaponMeshSet(main, muzzle);
+        if(!muzzle) throw new Error(`didn't find a muzzle. There must be a mesh named 'mUzZLE' (case insensitive) in the mesh list. (Will turn into a transform node during import)`);
+
+        return new WeaponMeshSet(root, muzzle);
+
     }
 
     
 
-    export function FindGunAnimations(wms : WeaponMeshSet, scene : Scene) : GunAnimations
-    {
-        let reloadAG = MakeAnimationGroup(<AnimationRange>wms.main.getAnimationRange("Reload"), wms.Meshes, scene);
-        return new GunAnimations(reloadAG);
-    }
-
-
-    //
-    // Hands should be loaded within the same blender file as each gun
-    // So create anim group maker that can include multiple meshes
-    export function MakeAnimationGroup(rng : AnimationRange, meshes : Mesh[], scene : Scene) : AnimationGroup
-    {
-        let ag = new AnimationGroup(`${rng.name}`, scene);
-
-        meshes.forEach((mesh) => {
-            MUtils.Assert(mesh.animations.length > 0, "no animations associated with this mesh");
-            
-            mesh.animations.forEach((anim) => {
-                let keys = anim.getKeys();
-                let start = keys[0]; let end = keys[keys.length - 1];
-
-                if(start.frame >= rng.from || end.frame <= rng.to) // inclusive condition. don't require both to be in range
-                {
-                    ag.addTargetedAnimation(anim, mesh);
-                }
-            });
-        });
-
-        return ag;
-    }
-
     
 }
 
-// DEEP THOUGHTS: reload animations involve hands and hands hold guns in different ways per gun
-// So, seems like the gun needs a way to specify what the hands should do
 
-export type MWAnimType=AnimationGroup;
+export type MWAnimType=MAnimator.MSkeletonAnimator;
 
-//
-// encapsulate the data we need to animate
-export class MBabAnimationSet
+export class GunAnimator
 {
     constructor(
-        public group : AnimationGroup,
-        public animations : Animation[]
-    ) {}
-
-    play(scene : Scene) : void 
-    {
-        // this.animations.forEach((anim) => {
-        //     scene.beginDirectAnimation(anim)
-        // })
-    }
-
-}
-
-export class GunAnimations
-{
-    constructor(
-        public reload : MWAnimType
+        public skelAnimator : MWAnimType
     ){}
 }
 
@@ -103,8 +55,8 @@ export class GunEffects
 {
     constructor(
         public fireSoundType : MAudio.SoundType,
-        public animations : GunAnimations
-        // TODO: Loadable particles
+        public animations : GunAnimator
+        // TODO: Loadable particles <--actually specify-able particles blender exporter doesn't export particles
     ) 
     {}
 }
@@ -112,26 +64,27 @@ export class GunEffects
 class WeaponMeshSet 
 {
     constructor(
-        public main : Mesh,
+        public main : TransformNode,
         public muzzle : TransformNode) {}
 
-    static MakePlaceholder(scene : Scene) : WeaponMeshSet
-    {
-        let main = MeshBuilder.CreateBox(`ph-wms-${MUtils.RandomString(12)}`, {
-            size : .5
-        }, scene);
-        let muzzle = MeshBuilder.CreateSphere(`muzz-${main.name}`, {
-            diameter : .2  
-        }, scene);
+    // static MakePlaceholder(scene : Scene) : WeaponMeshSet
+    // {
+    //     let main = MeshBuilder.CreateBox(`ph-wms-${MUtils.RandomString(12)}`, {
+    //         size : .5
+    //     }, scene);
+    //     let muzzle = MeshBuilder.CreateSphere(`muzz-${main.name}`, {
+    //         diameter : .2  
+    //     }, scene);
 
-        muzzle.parent = main;
-        muzzle.setPositionWithLocalVector(Vector3.Forward().scale(.8));
-        return new WeaponMeshSet(main, muzzle);
-    }
+    //     muzzle.parent = main;
+    //     muzzle.setPositionWithLocalVector(Vector3.Forward().scale(.8));
+    //     return new WeaponMeshSet(main, muzzle);
+    // }
 
-    get Meshes() : Mesh[] { return [ this.main ]; }
+    // get Meshes() : Mesh[] { return [ this.main ]; }
 
     dispose() {
+        throw new Error('not implemented');
         if(this.main)
             this.main.dispose();
         if(this.muzzle)
@@ -147,14 +100,10 @@ export abstract class MAbstractWeapon
         public effects : GunEffects
     ){
 
-        effects.animations.reload.onAnimationGroupEndObservable.add((ag : AnimationGroup, eventState : EventState) => {
+        effects.animations.skelAnimator.addEndActionCallback("Reload", (ag : AnimationGroup, eventState : EventState) => {
             console.log(`end group observable: ${ag.name}`);
             this.handleReloadFinished();
         });
-        // effects.animations.reload.onAnimationEndObservable.add((targetedAnim : TargetedAnimation, eventState : EventState) => {
-        //     console.log(`end observable: ev state: ${eventState.mask}.`);
-        //     this.handleReloadFinished();
-        // });
         
     }
 
@@ -174,7 +123,8 @@ export abstract class MAbstractWeapon
     {
         let refill = Math.min(this.PerClipAmmo(), this._totalAmmo);
         this._totalAmmo -= refill;
-        this._clipAmmo = Math.min(this._clipAmmo + refill, this.PerClipAmmo()); // odd case where they are pretty low but have some ammo in the clip too (let's not worry too much)
+        // odd case where they are pretty low but have some ammo in the clip too (let's not worry too much)
+        this._clipAmmo = Math.min(this._clipAmmo + refill, this.PerClipAmmo()); 
     }
 
     public PerClipAmmo() : number { return 3; }
@@ -194,8 +144,9 @@ export abstract class MAbstractWeapon
     {
         if(this.totalAmmo > 0) 
         {
-            if(!this.effects.animations.reload.isPlaying)
-                this.effects.animations.reload.play(false);
+            // TODO: play reload using the skel animator (gun animator)
+            // if(!this.effects.animations.skelAnimator.isPlaying)
+            //     this.effects.animations.skelAnimator.play(false);
         }
         else 
         {
@@ -269,12 +220,19 @@ export class MHandGun extends MVoluntaryWeapon
 
     static CreateHandGun(mapPackage : MLoader.MapPackage) : MHandGun
     {
-        let book = mapPackage.assetBook;
-        let loadedMeshData = book.getMeshTask(MLoader.MeshFiles.Instance.handgun.getKey());
+        let loadedMeshData = mapPackage.assetBook.getMeshTask(MLoader.MeshFiles.Instance.shotgun.getKey());
         if(loadedMeshData === undefined) throw new Error(`couldn't find handgun asset`);
-        let meshSet = WeaponMeshImport.FindMeshSet(loadedMeshData.task.loadedMeshes);
+        let meshSet = WeaponMeshImport.FindMeshSet(loadedMeshData.task.loadedMeshes, "shotgun-root", mapPackage.scene);
+
+        let gunSkel = loadedMeshData.task.loadedSkeletons[0];
+        let skelAnimator = new MAnimator.MSkeletonAnimator(mapPackage.scene, gunSkel);
+        if(loadedMeshData.animationBook)
+            skelAnimator.addActionsFromBook(loadedMeshData.animationBook);
+        else 
+            throw new Error(`need an animation book`);
         
-        let anims = WeaponMeshImport.FindGunAnimations(meshSet, mapPackage.scene); // WeaponMeshImport.FindAnimations(t.loadedAnimationGroups);
+        // let anims = WeaponMeshImport.FindGunAnimations(meshSet, mapPackage.scene); // WeaponMeshImport.FindAnimations(t.loadedAnimationGroups);
+        let anims = new GunAnimator(skelAnimator);
         let effects = new GunEffects(
             MAudio.SoundType.HandGunFire,
             anims);
