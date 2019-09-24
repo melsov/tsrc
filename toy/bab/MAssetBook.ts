@@ -1,10 +1,10 @@
 import { Dictionary } from "typescript-collections";
-import { AssetsManager, MeshAssetTask, AbstractAssetTask, Nullable, Engine, Scene, BinaryFileAssetTask } from "babylonjs";
+import { AssetsManager, MeshAssetTask, AbstractAssetTask, Nullable, Engine, Scene, BinaryFileAssetTask, AbstractMesh } from "babylonjs";
 import { TypeOfGame, g_render_canvas_server_id, g_render_canvas_client_id_b, g_render_canvas_client_id_a } from "../GameMain";
 import { MAnimator } from "../loading/MAnimator";
 import { MEntiyBabListLookup, MEnityBabFileList, MBabFile } from "../loading/MBabFileList";
 import { MUtils } from "../Util/MUtils";
-
+//import { MSkeletonAnimator } from "./NetworkEntity/MSkeletonAnimator";
 
 
 export namespace MLoader
@@ -61,7 +61,7 @@ export namespace MLoader
 
         getKey() : string { 
             // if .babylon file, remove the '.babylon'
-            if(this.fileName.indexOf(".babylon") > 0) { 
+            if(this.fileName.endsWith(".babylon")) { 
                 return this.fileName.substr(0, this.fileName.length - (".babylon").length);
             }
             return this.fileName; 
@@ -95,6 +95,7 @@ export namespace MLoader
 
         private static folderAudio : string = "audio";
         readonly dink : Loadable = new Loadable(AudioFiles.folderAudio, "dink.wav");
+        readonly camClick : Loadable = new Loadable(AudioFiles.folderAudio, "cam-click.wav");
     }
 
     // TODO: mechanism for loading assets per scene
@@ -108,11 +109,13 @@ export namespace MLoader
 
     export class LoadedMeshData
     {
-        public animationBook : Nullable< MAnimator.MRootEntityAnimationBook> = null;
+        public animationBook : Nullable<MAnimator.MRootEntityAnimationBook> = null;
+
         constructor(
             public task : MeshAssetTask,
             animationBook ? : MAnimator.MRootEntityAnimationBook
-        ){
+        )
+        {
             if(animationBook) {
                 this.animationBook = animationBook;
             }
@@ -141,10 +144,16 @@ export namespace MLoader
             return mls.map((loadable) =>  loadable.getKey() );
         }
 
+        private disableMeshes(meshes : AbstractMesh[]) {
+            meshes.forEach((m : AbstractMesh) => { m.setEnabled(false);})
+        }
+
+
+        //
         // first load the animation file specs json file (use a separate assetmanager)
         // The file spec file... 
-        // describes each entities .bab files (1 or possibly more .bab files though having only 1 is probably better for one's sanity)
-        // and for each of these .bab files provides a list of animations/actions.
+        // describes each entity's .bab files (1 or possibly more .bab files though having only 1 is probably better for one's sanity)
+        // and a list of animations/actions per .bab file.
 
         // From the file specs file create an MEntityBabListLookup (organizer for these specifications)
         // for each entity name (key) in the lookup
@@ -205,9 +214,6 @@ export namespace MLoader
 
         LoadAll(mapID : MapID, callback : () => void) : void
         {
-            
-        
-
             if(this.loadedMeshes.keys().length > 0) {
                 console.warn("why call load assets more than once? nothing re-loaded.");
                 callback();
@@ -245,7 +251,13 @@ export namespace MLoader
                 }
     
                 this.am.onFinish = (tasks : AbstractAssetTask[]) => {
-                    this.debugTestPlayPillar();
+                    // this.debugTestPlayPillar();
+
+                    tasks.forEach((task : AbstractAssetTask) => {
+                        if(task instanceof MeshAssetTask) {
+                            this.disableMeshes(task.loadedMeshes);
+                        }
+                    })
                     callback();
                 }
     
@@ -254,19 +266,19 @@ export namespace MLoader
 
         }
 
-        private debugTestPlayPillar() : void 
-        {
-            let pillarData = this.loadedMeshes.getValue(MLoader.MeshFiles.Instance.pillarDebug.getKey());
-            MUtils.Assert(pillarData !== undefined, `that's odd`);
-            if(pillarData)
-            {
-                let skelAnimator = new MAnimator.MSkeletonAnimator(this.scene, pillarData.task.loadedSkeletons[0]);
-                if(pillarData.animationBook)
-                    skelAnimator.addActionsFromBook(pillarData.animationBook);
+        // private debugTestPlayPillar() : void 
+        // {
+        //     let pillarData = this.loadedMeshes.getValue(MLoader.MeshFiles.Instance.pillarDebug.getKey());
+        //     MUtils.Assert(pillarData !== undefined, `that's odd`);
+        //     if(pillarData)
+        //     {
+        //         let skelAnimator = new MSkeletonAnimator(this.scene, pillarData.task.loadedSkeletons[0]);
+        //         if(pillarData.animationBook)
+        //             skelAnimator.addActionsFromBook(pillarData.animationBook);
 
-                skelAnimator.play("Twist", true);
-            }
-        }
+        //         skelAnimator.play("Twist", true);
+        //     }
+        // }
 
         
     }

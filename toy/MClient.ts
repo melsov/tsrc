@@ -7,7 +7,7 @@ import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput, KeyMoves } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
-import { Color3, Vector3, AssetsManager, MeshAssetTask } from "babylonjs";
+import { Color3, Vector3, AssetsManager, MeshAssetTask, TransformNode } from "babylonjs";
 import { MPlayerAvatar } from "./bab/MPlayerAvatar";
 import { CheckboxUI } from "./html-gui/CheckboxUI";
 import { MUtils } from "./Util/MUtils";
@@ -22,8 +22,10 @@ import { ConfirmableMessageOrganizer, ConfirmableType, MAnnouncement, MPlayerRee
 import { LifeStage, StageType } from "./MLifeCycle";
 import { Mel } from "./html-gui/LobbyUI";
 import { LagQueue } from "./helpers/LagQueue";
-import { MAudio } from "./manager/MAudioManager";
+import { MAudio } from "./loading/MAudioManager";
 import { MLoader } from "./bab/MAssetBook";
+import { UIVector3 } from "./html-gui/UIVector3";
+import { MParticleManager } from "./loading/MParticleManager";
 
 
 
@@ -96,6 +98,8 @@ export class MClient
 
     private requestLoadOutFunc : () => void = () => {};
 
+    private debugWeapOffsetUI : UIVector3;
+
     constructor(
         public readonly user : tfirebase.User,
         public readonly game : GameMain,
@@ -129,7 +133,15 @@ export class MClient
 
         this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh);
 
-        playerPuppet.setupClientPlayer(this.fpsCam.root);
+        playerPuppet.setupClientPlayer(this.fpsCam.cam);
+
+        this.debugWeapOffsetUI = new UIVector3("weapOffsetContainer");
+        this.debugWeapOffsetUI.setValues(playerPuppet.weaponRoot.getPositionExpressedInLocalSpace());
+        this.debugWeapOffsetUI.doInputChanged = (v : Vector3) => {
+            console.log(`set weapon root to: ${v}`);
+            playerPuppet.debugSetWeaponRootPos(v);
+        };
+        
 
         this.input.rightMouseToggle.callback = (isOn : boolean) => {
             this.fpsCam.toggleFOV(isOn);
@@ -157,6 +169,7 @@ export class MClient
     private setupManagers() : void 
     {
         MAudio.MAudioManager.SetSingleton(new MAudio.MAudioManager(this.game.scene, this.playerEntity.playerPuppet.mesh, this.game.mapPackage.assetBook));
+        MParticleManager.SetSingleton(new MParticleManager(this.game.mapPackage.scene, this.playerEntity.playerPuppet.mesh));
     }
 
     public init() : void
@@ -365,11 +378,8 @@ export class MClient
             if(serverUpdate.confirmableMessages)
             {
                 this.confirmMessageOrganizer.addArray(serverUpdate.confirmableMessages);
-
                 this.messageBoard.push(<MAnnouncement[]> this.confirmMessageOrganizer.consume(ConfirmableType.Announcement)); 
-
                 this.handlePlayerReentry(<MPlayerReentry[]> this.confirmMessageOrganizer.consume(ConfirmableType.PlayerReentry));
-
                 this.handleExitDeath(<MExitDeath[]> this.confirmMessageOrganizer.consume(ConfirmableType.ExitDeath));
             }
 

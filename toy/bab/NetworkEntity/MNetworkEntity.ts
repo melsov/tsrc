@@ -7,8 +7,8 @@ import { MPlayerAvatar, DEBUG_SPHERE_DIAMETER, MAX_HEALTH as MAX_HEALTH_PLAYER }
 import { MProjectileHitInfo, ProjectileType } from "./transient/MProjectileHitInfo";
 import { GameEntityTags } from "../../GameMain";
 import { MUtils } from "../../Util/MUtils";
-import { MTransientStateBook } from "./transient/MTransientStateBook";
-import { MAudio } from "../../manager/MAudioManager";
+import { MTransientStateBook, FireActionType } from "./transient/MTransientStateBook";
+import { MAudio } from "../../loading/MAudioManager";
 
 export abstract class MNetworkEntity
 {
@@ -359,9 +359,9 @@ export class MNetworkPlayerEntity extends MNetworkEntity
         // this.projectileHitsOnMe.length = 0;
     }   
 
-    public recordWeaponFired() : void
+    public recordWeaponFired(fireAction : FireActionType) : void
     {
-        this.transientStateBook.firedWeapon = true;
+        this.transientStateBook.firedWeapon = fireAction;
     }
     
     protected moveDir(cmd : CliCommand) : Vector3
@@ -531,13 +531,18 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
         if(!this.isClientControlledPlayer())
         {
-            if(npe.transientStateBook.firedWeapon) 
+            if(npe.transientStateBook.firedWeapon === FireActionType.Fired) 
             {
                 // play weapon fire audio
                 console.log(`kaboom! (source : ${this.netId})`);
                 this.playerPuppet.arsenal.equipped().fire(KeyMoves.DownUpHold.Down);
-                this.playerPuppet.arsenal.equipped().playClientSideEffects();
+                this.playerPuppet.arsenal.equipped().playClientSideFireEffects(); // Don't want
                 // MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.HandGunFire, npe.position);
+            }
+            else if(npe.transientStateBook.firedWeapon === FireActionType.Reloaded)
+            {
+                console.log(`reloading (source: ${this.netId})`);
+                this.playerPuppet.arsenal.equipped().playReload();
             }
         }
     }

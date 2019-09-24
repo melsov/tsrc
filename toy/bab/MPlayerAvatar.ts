@@ -9,8 +9,8 @@ import { MFlopbackTimer } from "../helpers/MFlopbackTimer";
 import { CliCommand, KeyMoves } from "./MPlayerInput";
 import { ServerSimulateTickMillis } from "../MServer";
 import { MJumpCurve, JumpState } from "../helpers/MCurve";
-import { MAudio } from "../manager/MAudioManager";
-import { WeaponMeshImport, MHandGun } from "./NetworkEntity/weapon/MWeapon";
+// import { MAudio } from "../loading/MAudioManager";
+// import { WeaponMeshImport, MShotgun } from "./NetworkEntity/weapon/MWeapon";
 import { MLoader } from "./MAssetBook";
 import { MArsenal } from "./NetworkEntity/weapon/MArsenal";
 // import undefined = require("firebase/empty-import");
@@ -66,7 +66,7 @@ export class MPlayerAvatar implements Puppet
     private debugHitPointMesh : Mesh;
 
     public readonly arsenal : MArsenal;
-    private weaponRoot : TransformNode;
+    public readonly weaponRoot : TransformNode;
 
     constructor
     (
@@ -111,10 +111,21 @@ export class MPlayerAvatar implements Puppet
         // TODO: if cli owned. attach to camera
     }
 
-    setupClientPlayer(camRoot : TransformNode) : void 
+    setupClientPlayer(camRoot : Camera) : void 
     {
         this.weaponRoot.parent = camRoot;
-        this.weaponRoot.setPositionWithLocalVector(new Vector3(.2, -.1, 2));
+        this.weaponRoot.setPositionWithLocalVector(new Vector3(2.44, -2, 4)); 
+
+        // render in front
+        let meshes = this.weaponRoot.getChildMeshes(false);
+        meshes.forEach((m : AbstractMesh) => {
+            m.renderingGroupId = 3;
+        });
+    }
+
+    debugSetWeaponRootPos(localPos : Vector3) : void 
+    {
+        this.weaponRoot.setPositionWithLocalVector(localPos);
     }
 
     private importCharacterFromBook(assetBook : MLoader.AssetBook) : void 
@@ -258,7 +269,7 @@ export class MPlayerAvatar implements Puppet
     // server
     commandFire(duh : KeyMoves.DownUpHold, forward : Vector3) : Nullable<PickingInfo>
     {
-        if(!this.arsenal.equipped().shouldFire(duh)) {
+        if(!this.arsenal.equipped().hasAmmoAndKeyAllowsFire(duh)) {
             return null;
         }
 
@@ -292,7 +303,7 @@ export class MPlayerAvatar implements Puppet
         //     return;
         // }
         // MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.HandGunFire, this.mesh.position);
-        this.arsenal.equipped().playClientSideEffects();
+        this.arsenal.equipped().playClientSideFireEffects();
     }
 
 

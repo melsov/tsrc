@@ -32,13 +32,21 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     
     createImmediateEffectsFromInput(cliCommand : CliCommand) : void
     {
-        if(this.playerPuppet.arsenal.equipped().shouldFire(cliCommand.fire)) 
+        // if(this.playerPuppet.arsenal.equipped().hasAmmoAndKeyAllowsFire(cliCommand.fire)) 
+        if(this.playerPuppet.arsenal.equipped().keyAllowsFire(cliCommand.fire)) 
         {
-        // if(cliCommand.fire) {
+            // if(cliCommand.fire) {
             //TODO: if has ammo
-            console.log(`will animate fire`);
-            this.playerPuppet.arsenal.equipped().fire(cliCommand.fire);
-            this.playerPuppet.animateFire(cliCommand.fire);
+            if(this.playerPuppet.arsenal.equipped().isAmmoInClip())
+            {
+                console.log(`will animate fire`);
+                this.playerPuppet.arsenal.equipped().fire(cliCommand.fire);
+                this.playerPuppet.animateFire(cliCommand.fire); // think we don't want this method to exist?
+                // instead fire can take another param: isClientControlledPlayer ? : boolean
+            } else 
+            {
+                this.playerPuppet.arsenal.equipped().playReload();
+            }
         }
 
     }

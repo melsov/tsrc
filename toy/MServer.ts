@@ -20,8 +20,9 @@ import {  MAnnounce } from "./bab/MAnnouncement";
 import { MConfirmableMessageBook, MAnnouncement, MAbstractConfirmableMessage, MPlayerReentry, MExitDeath } from "./helpers/MConfirmableMessage";
 import { LagQueue } from "./helpers/LagQueue";
 import { Mel } from "./html-gui/LobbyUI";
-import { MAudio } from "./manager/MAudioManager";
+import { MAudio } from "./loading/MAudioManager";
 import { GridMaterial } from "babylonjs-materials";
+import { FireActionType } from "./bab/NetworkEntity/transient/MTransientStateBook";
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
@@ -443,13 +444,16 @@ export class MServer
     {
         let cliCommand = qcmd.cmd;
         
-        //if(!debugTestFire)
-            if(!firingPlayer.playerPuppet.arsenal.equipped().shouldFire(cliCommand.fire)) return;
-        // if(pickingInfo === null) return;
-        // if(!KeyMoves.IsDown(cliCommand.fire)) return;
-        
-        //if(!debugTestFire)
-            firingPlayer.recordWeaponFired();
+        if(!firingPlayer.playerPuppet.arsenal.equipped().keyAllowsFire(cliCommand.fire)) {
+            return;
+        }
+
+        if(!firingPlayer.playerPuppet.arsenal.equipped().isAmmoInClip()) {
+            firingPlayer.recordWeaponFired(FireActionType.Reloaded);
+            return;
+        } 
+
+        firingPlayer.recordWeaponFired(FireActionType.Fired);
 
         // TODO: isolate. for example. don't even rewind state (maybe this messes with us?)
         // with rewind disabled. check if rays behave

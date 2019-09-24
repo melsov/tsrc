@@ -1,4 +1,5 @@
-import { UniversalCamera, Vector3, TransformNode } from "babylonjs";
+import { UniversalCamera, Vector3, TransformNode, Color3 } from "babylonjs";
+import { MUtils } from "../Util/MUtils";
 
 export class FPSCam
 {

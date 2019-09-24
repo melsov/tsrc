@@ -1,42 +1,40 @@
 import { Sound, Scene, AssetsManager, BinaryFileAssetTask, Vector3, Nullable, TransformNode } from "babylonjs";
 import { Dictionary, PriorityQueue } from "typescript-collections";
 import { MLoader } from "../bab/MAssetBook";
+import { MSoundType } from "../manager/SoundType";
 
 export namespace MAudio
 {
-
+    
+    
     const MAX_SIMULTANEOUS : number = 3;
-
-    export enum SoundType
-    {
-        HandGunFire
-    }
-
+                
     class AudioURL
     {
         constructor(
-            public soundType : SoundType,
+            public soundType : MSoundType.SoundType,
             public assetKey : string
         ){}
     }
 
     const audioKeys : AudioURL[] = [
-        new AudioURL(SoundType.HandGunFire, MLoader.AudioFiles.Instance.dink.getKey())
+        new AudioURL(MSoundType.SoundType.HandGunFire, MLoader.AudioFiles.Instance.dink.getKey()),
+        new AudioURL(MSoundType.SoundType.ShotgunReload, MLoader.AudioFiles.Instance.camClick.getKey())
     ]; 
 
 
-    class MSound
-    {
-        constructor(
-            public readonly soundType : SoundType,
-            public readonly sound : Sound
-        ) {}
-    }
+    // class MSound
+    // {
+    //     constructor(
+    //         public readonly soundType : SoundType,
+    //         public readonly sound : Sound
+    //     ) {}
+    // }
 
     class QueueableSound
     {
         constructor(
-            public readonly soundType : SoundType,
+            public readonly soundType : MSoundType.SoundType,
             public readonly position : Vector3,
             public readonly referencePosition : Vector3
         ) {}
@@ -48,6 +46,7 @@ export namespace MAudio
     export class MAudioManager
     {
 
+        // region instance
         private static _instance : Nullable<MAudioManager> = null;
         static get Instance() : MAudioManager { return <MAudioManager> this._instance; }
         static SetSingleton(am : MAudioManager) : void 
@@ -56,7 +55,7 @@ export namespace MAudio
             this._instance = am;
         }
 
-        private book : Dictionary<SoundType, Sound[]> = new Dictionary<SoundType, Sound[]>();
+        private book  = new Dictionary<MSoundType.SoundType, Sound[]>();
         private queue : PriorityQueue<QueueableSound>;
 
         private audioEnabled : boolean = false;
@@ -70,7 +69,7 @@ export namespace MAudio
         }
         
         private makeANoise() : void {
-            let dinks = this.book.getValue(SoundType.HandGunFire);
+            let dinks = this.book.getValue(MSoundType.SoundType.HandGunFire);
             if(dinks === undefined) throw new Error("help");
             dinks[0].play();
         }
@@ -101,8 +100,8 @@ export namespace MAudio
         constructor(
             private readonly scene : Scene,
             public listener : TransformNode,
-            private readonly assetBook : MLoader.AssetBook
-        )
+            private readonly assetBook : MLoader.AssetBook // TODO: reconfigure files so that we don't need to import MLoader (easy with AudioFiles: just move to its own file)
+        ) 
         {
             
             // this.debugPlayBackgroundMusic();
@@ -131,7 +130,7 @@ export namespace MAudio
             music.setVolume(.03);
         }
 
-        enqueue(type : SoundType, playPosition : Vector3) : void
+        enqueue(type : MSoundType.SoundType, playPosition : Vector3) : void
         {
             this.queue.enqueue(new QueueableSound(type, playPosition, this.listener.position));
         }

@@ -1,4 +1,4 @@
-import { MAbstractWeapon, MHandGun } from "./MWeapon";
+import { MAbstractWeapon, MShotgun } from "./MWeapon";
 import { MUtils } from "../../../Util/MUtils";
 import { MLoader } from "../../MAssetBook";
 
@@ -43,7 +43,7 @@ export class MArsenal
         //TODO : make a weapon mesh set using asset book
 
         return new MArsenal([
-            MHandGun.CreateHandGun(mapPackage),
+            MShotgun.CreateShotgun(mapPackage),
         ]);
     }
 

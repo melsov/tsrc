@@ -2,6 +2,11 @@ import { MProjectileHitInfo } from "./MProjectileHitInfo";
 import { Nullable } from "babylonjs";
 import { has } from "typescript-collections/dist/lib/util";
 
+
+export enum FireActionType
+{
+    DidNothing, Fired, Reloaded
+}
 /**
  * Encapsulates events (transient states) to broadcast to clients
  * that should only happen once. 
@@ -12,12 +17,12 @@ export class MTransientStateBook
 {
     shouldDelete : boolean = false; // e.g. player disconnected
     projectileHitsOnMe : Array<MProjectileHitInfo> = new Array<MProjectileHitInfo>();
-    firedWeapon : boolean = false;
+    firedWeapon : FireActionType = FireActionType.DidNothing;
 
     clear() : void 
     {
         this.projectileHitsOnMe.length = 0;
-        this.firedWeapon = false;
+        this.firedWeapon = FireActionType.DidNothing;
     }
 
     clone() : MTransientStateBook
@@ -44,8 +49,8 @@ export class MTransientStateBook
             hasData = true;
         }
 
-        if(this.firedWeapon) {
-            result.f = true;
+        if(this.firedWeapon > FireActionType.DidNothing) {
+            result.f = this.firedWeapon;
             hasData = true;
         }
 
@@ -73,7 +78,7 @@ export class MTransientStateBook
                 for(let i=0; i < hits.length; ++i) book.projectileHitsOnMe.push(MProjectileHitInfo.FromJSON(hits[i]));
             }
                 
-            book.firedWeapon = tsObj.f !== undefined;
+            book.firedWeapon = tsObj.f !== undefined ? tsObj.f : FireActionType.DidNothing;
             book.shouldDelete = tsObj.x !== undefined;
         }
 

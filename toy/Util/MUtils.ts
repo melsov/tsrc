@@ -1,4 +1,4 @@
-import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToProperty, AbstractMesh, Scene, TransformNode, Node } from "babylonjs";
+import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToProperty, AbstractMesh, Scene, TransformNode, Node, Skeleton, Mesh, MeshBuilder } from "babylonjs";
 import { BHelpers } from "../MBabHelpers";
 import { GridMaterial } from "babylonjs-materials";
 
@@ -36,6 +36,18 @@ export namespace MUtils
             result += characters.charAt(Math.floor(Math.random() * charactersLength));
         }
         return result;
+    }
+
+    export function RandIntMaxInclusive(max : number) : number 
+    {
+        max = Math.floor(max);
+        return Math.floor(Math.random() * (max + 1)); 
+    }
+
+    export function RandIntMaxExclusive(max : number) : number 
+    {
+        max = Math.floor(max);
+        return Math.floor(Math.random() * max);    
     }
 
 
@@ -99,6 +111,26 @@ export namespace MUtils
         );
     }
 
+    export function CreateGridMaterial(scene : Scene, mainColor : Color3, lineColor ? : Color3) : GridMaterial
+    {
+        let result = new GridMaterial('util-grid-mat', scene);
+        result.mainColor = mainColor;
+        if(lineColor) {
+            result.lineColor = lineColor;
+        }
+        return result;
+    }
+
+    export function CreateGridMatSphere(scene : Scene, mainColor : Color3, lineColor ? : Color3, diameter ? : number) : Mesh
+    {
+        let sphere = MeshBuilder.CreateSphere('util-sphere', {
+            diameter : diameter ? diameter : 1
+        }, scene);
+
+        sphere.material = CreateGridMaterial(scene, mainColor, lineColor);
+        return sphere;
+    }
+
     export function GetSliderNumber(from : number, to : number, t : number) : number
     {
         if(Math.abs(to - from) < .00001) return 0;
@@ -147,15 +179,28 @@ export namespace MUtils
         return false;
     }
 
-    export function RootifiedClone(rootName : string, meshes : AbstractMesh[], scene : Scene) : TransformNode
+
+    export function RootifiedClone(rootName : string, meshes : AbstractMesh[], scene : Scene, extraProcessing ? : (m : Node, orig : Node) => void) : TransformNode
     {
         let root = new TransformNode(rootName, scene);
+
         for(let i=0; i < meshes.length; ++i) 
         {
             let mesh = meshes[i];
             if(mesh.parent === null) {
-                mesh.clone(`${mesh.name}`, root);
+                let clone = mesh.clone(`${mesh.name}`, root);
+
+                // extra processing
+                if(extraProcessing && clone) {
+                    extraProcessing(clone, mesh);
+                    let children = clone.getChildren((n : Node) => { return true}, false);
+                    let origChildren = mesh.getChildren((n : Node) => { return true}, false);
+                    for(let j=0; j < children.length; ++j) {
+                        extraProcessing(children[j], origChildren[j]);
+                    }
+                }
             }
+
         }
         return root;
     }
@@ -164,6 +209,13 @@ export namespace MUtils
     {
         // params: filter predicate , only direct children (default true)
         return node.getChildren((n : Node) => { return true; }, false);
+    }
+
+    export function GetAllMeshChildren(node : Node) : Mesh[]
+    {
+        return <Mesh[]> node.getChildren((n : Node) => {
+            return n instanceof Mesh;
+        }, false);
     }
 
 }
