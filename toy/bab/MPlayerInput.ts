@@ -83,7 +83,7 @@ class InputKeys
 
 const KB_EVENT_TIMEOUT_MILLIS : number = 1500;
 
-const FIRE_RATE_MILLIS : number = 1000; // slow for testing
+const DEBUG_TRIGGER_FIRE_RATE : number = 1000; 
 
 class KeySet
 {
@@ -237,7 +237,7 @@ export class MPlayerInput
             this.debugTriggerReady = false;
             window.setTimeout(()=> {
                 this.debugTriggerReady = true;
-            }, FIRE_RATE_MILLIS); // TODO: allow weapons to handle their fire rates
+            }, DEBUG_TRIGGER_FIRE_RATE); 
         }
 
         cc.jump = this._inputKeys.jump;

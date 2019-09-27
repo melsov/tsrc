@@ -41,6 +41,7 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
             {
                 console.log(`will animate fire`);
                 this.playerPuppet.arsenal.equipped().fire(cliCommand.fire);
+                this.playerPuppet.createFireImpactEffects(this.playerPuppet.getFireRay(cliCommand.forward));
                 this.playerPuppet.animateFire(cliCommand.fire); // think we don't want this method to exist?
                 // instead fire can take another param: isClientControlledPlayer ? : boolean
             } else 

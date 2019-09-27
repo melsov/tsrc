@@ -31,7 +31,6 @@ export namespace WeaponMeshImport
                 }
             }
 
-            console.log(`clone name: ${clone.name} orig name: ${orig.name}`);
             if(orig.name.toLowerCase() === "muzzle") {
                 muzzle = new TransformNode(clone.name, scene);
                 muzzle.position = (<TransformNode>clone).position;
@@ -52,7 +51,7 @@ export namespace WeaponMeshImport
 
         let flashes = (<TransformNode> muzzleFlashRoot).getChildMeshes(true);
 
-        return [new WeaponMeshSet(root, muzzle, flashes, MParticleType.ShotgunImpact), skelClone];
+        return [new WeaponMeshSet(root, muzzle, flashes, "shotgunimpact"), skelClone];
 
     }
     
@@ -95,7 +94,7 @@ class WeaponMeshSet
         public main : TransformNode,
         public muzzle : TransformNode,
         public muzzleFlashes : TransformNode[],
-        public impactParticleType : MParticleType
+        public impactParticleType : string
         ) {
             this.muzzleFlashes.forEach((flashMesh) => {
                 flashMesh.setEnabled(false);
@@ -118,10 +117,9 @@ export abstract class MAbstractWeapon
     constructor(
         public meshSet : WeaponMeshSet,
         public effects : GunEffects
-    ){
-
+    )
+    {
         effects.animations.skelAnimator.addEndActionCallback("Reload", (ag : AnimationGroup, eventState : EventState) => {
-            console.log(`end group observable: ${ag.name}`);
             this.handleReloadFinished();
         });
         
@@ -129,7 +127,7 @@ export abstract class MAbstractWeapon
 
 
     // we think fireRate needs to be a multiple of the simulate tick rate
-    protected fireRateM : number = ServerSimulateTickMillis * 10;
+    protected fireRateM : number = ServerSimulateTickMillis * 50;
     protected abstract get isAutomatic() : boolean;
 
     protected _totalAmmo : number = this.MaxAmmo(); 
@@ -169,7 +167,6 @@ export abstract class MAbstractWeapon
     protected handleReloadFinished() : void 
     {
         this.decrementAmmoFillClip();
-        console.log(`got reload finished clip: ${this.clipAmmo}, total: ${this.totalAmmo}`);
     }
 
     public playReload() 
@@ -196,13 +193,9 @@ export abstract class MAbstractWeapon
 
     public fire(duh : KeyMoves.DownUpHold) : boolean 
     {
-        // assume we already 'should fire', called externally
+        // assume we 'should fire', checked externally
         console.log(`total ammo: ${this.totalAmmo}. clip: ${this._clipAmmo}`);
-        // if(this._clipAmmo <= 0) { 
-        //     console.log(`will reload`);
-        //     this.playReload();
-        //     return false; 
-        // }
+        // TODO: UI for ammo / clip
 
         this._fire();
         this.decrementClipAmmo();
@@ -234,18 +227,21 @@ export abstract class MVoluntaryWeapon extends MAbstractWeapon
         if(!this.isTimeoutFinished) { console.warn("weapon fired before timeout?");}
 
         this.isTimeoutFinished = false;
+        
         window.setTimeout(() => {
             this.isTimeoutFinished = true;
         }, this.fireRateM);
 
         this.doFire();
+
+        this.effects.animations.skelAnimator.playIfNotAlready("Fire");
     }
 
     protected abstract doFire() : void;
 
     protected flashMuzzleFlash() : void 
     {
-        // CONSIDER: using a shader for flash effects probably won't tank performance and would allow for more expressiveness
+        // CONSIDER: using a shader for flash effects probably won't tank performance and might allow for more expressiveness
 
         let start = MUtils.RandIntMaxExclusive(this.meshSet.muzzleFlashes.length);
         
@@ -276,7 +272,7 @@ export class MShotgun extends MVoluntaryWeapon
 
         let anims = new GunAnimator(skelAnimator);
         let effects = new GunEffects(
-            MSoundType.SoundType.HandGunFire,
+            MSoundType.SoundType.ShotgunFire,
             anims);
 
         return new MShotgun(meshSetAndSkel[0], effects);
@@ -284,7 +280,8 @@ export class MShotgun extends MVoluntaryWeapon
 
     public playClientSideFireEffects() : void 
     {
-        MAudio.MAudioManager.Instance.enqueue(this.effects.fireSoundType, this.meshSet.muzzle.position);
+        // audio should play with animation spec
+        // MAudio.MAudioManager.Instance.enqueue(this.effects.fireSoundType, this.meshSet.muzzle.position);
 
         // TODO: play particles
     }

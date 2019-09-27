@@ -169,7 +169,7 @@ export class MClient
     private setupManagers() : void 
     {
         MAudio.MAudioManager.SetSingleton(new MAudio.MAudioManager(this.game.scene, this.playerEntity.playerPuppet.mesh, this.game.mapPackage.assetBook));
-        MParticleManager.SetSingleton(new MParticleManager(this.game.mapPackage.scene, this.playerEntity.playerPuppet.mesh));
+        MParticleManager.SetSingleton(new MParticleManager(this.game.mapPackage, this.playerEntity.playerPuppet.mesh));
     }
 
     public init() : void
@@ -285,6 +285,7 @@ export class MClient
         }
 
         MAudio.MAudioManager.Instance.playAny();
+        MParticleManager.Instance.playAny();
     }
 
     public teardown() : void 

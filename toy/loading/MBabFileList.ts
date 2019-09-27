@@ -62,7 +62,7 @@ export class MEntiyBabListLookup
 
 
         return loader;
-    }
+    } 
 
     private static LoadSpecFile(specFilePath : string, scene : Scene, callback : (specJsonStr : string) => void) : void
     {

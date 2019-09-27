@@ -536,6 +536,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
                 // play weapon fire audio
                 console.log(`kaboom! (source : ${this.netId})`);
                 this.playerPuppet.arsenal.equipped().fire(KeyMoves.DownUpHold.Down);
+                this.playerPuppet.createFireImpactEffects(this.playerPuppet.getFireRay(this.playerPuppet.mesh.forward));
                 this.playerPuppet.arsenal.equipped().playClientSideFireEffects(); // Don't want
                 // MAudio.MAudioManager.Instance.enqueue(MAudio.SoundType.HandGunFire, npe.position);
             }

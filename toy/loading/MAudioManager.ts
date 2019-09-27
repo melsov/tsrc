@@ -19,7 +19,8 @@ export namespace MAudio
 
     const audioKeys : AudioURL[] = [
         new AudioURL(MSoundType.SoundType.HandGunFire, MLoader.AudioFiles.Instance.dink.getKey()),
-        new AudioURL(MSoundType.SoundType.ShotgunReload, MLoader.AudioFiles.Instance.camClick.getKey())
+        new AudioURL(MSoundType.SoundType.ShotgunReload, MLoader.AudioFiles.Instance.camClick.getKey()),
+        new AudioURL(MSoundType.SoundType.ShotgunFire, MLoader.AudioFiles.Instance.shotgunShot.getKey()),
     ]; 
 
 

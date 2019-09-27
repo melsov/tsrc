@@ -1,6 +1,7 @@
 import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToProperty, AbstractMesh, Scene, TransformNode, Node, Skeleton, Mesh, MeshBuilder } from "babylonjs";
 import { BHelpers } from "../MBabHelpers";
 import { GridMaterial } from "babylonjs-materials";
+import { Set } from "typescript-collections";
 
 export namespace MUtils 
 {
@@ -216,6 +217,24 @@ export namespace MUtils
         return <Mesh[]> node.getChildren((n : Node) => {
             return n instanceof Mesh;
         }, false);
+    }
+
+    export function JSONStringifyDiscardCircular(o:any) : string {
+        // Note: cache should not be re-used by repeated calls to JSON.stringify.
+        var cache : any = []; 
+        let result = JSON.stringify(o, function(key, value) {
+            if (typeof value === 'object' && value !== null) { 
+                if (cache.indexOf(value) !== -1) {
+                    // Duplicate reference found, discard key
+                    return;
+                }
+                // Store value in our collection
+                cache.push(value);
+            }
+            return value;
+        });
+        cache = null; // Enable garbage collection
+        return result;
     }
 
 }

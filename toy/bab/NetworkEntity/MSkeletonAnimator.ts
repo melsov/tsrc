@@ -90,35 +90,56 @@ export class MSkeletonAnimator
 
     play(actionName : string, loop ? : boolean) : void 
     {
-        let grp = this.getAnimationGroup(actionName);
-        if(grp === undefined) {
+        let aa = this.getAnimationGroup(actionName);
+        if(aa === undefined) {
             return;
         }
-        grp.animationGroup.play(loop);
+        aa.animationGroup.play(loop);
 
         console.log(`skel bone 0 location? ${this.skeleton.bones[0].position}. bone 0 parent: `);
-        //enqueue any audio
-        grp.timelineAudios.forEach((timelineAudio) => {
-             MAudio.MAudioManager.Instance.enqueue(timelineAudio.keyName, this.boneRootNode.position); // TODO: allow animator to know its position
-        });
+        this.playAudios(aa);
+    }
+
+    restart(actionName : string, loop ? : boolean) : void 
+    {
+        let aa = this.getAnimationGroup(actionName);
+        if(!aa) { return; }
+        if(aa.animationGroup.isPlaying) { aa.animationGroup.stop(); }
+        aa.animationGroup.play();
+        this.playAudios(aa);
+    }
+
+    playIfNotAlready(actionName : string, loop ? : boolean) : void
+    {
+        let aa = this.getAnimationGroup(actionName);
+        if(aa.animationGroup.isPlaying) { return; }
+        aa.animationGroup.play();
+        this.playAudios(aa);
     }
 
     stop(actionName : string) : void 
     {
-        let grp = this.getAnimationGroup(actionName);
-        if(grp === undefined) {return; }
-        grp.animationGroup.stop();
+        let aa = this.getAnimationGroup(actionName);
+        if(aa === undefined) {return; }
+        aa.animationGroup.stop();
     }
 
     togglePlay(actionName : string, loop ? : boolean) : void 
     {
-        let grp = this.getAnimationGroup(actionName);
-        if(grp === undefined) {
-            return;
-        }
-        console.log(`grp undef ? ${grp === undefined}`)
-        if(grp.animationGroup.isPlaying) { grp.animationGroup.stop(); }
-        else { grp.animationGroup.play(loop); }
+        let aa = this.getAnimationGroup(actionName);
+        if(aa === undefined) { return; }
+
+        if(aa.animationGroup.isPlaying) { aa.animationGroup.stop(); }
+        else { aa.animationGroup.play(loop); }
+    }
+    
+    private playAudios(animAction : MAnimAction) : void 
+    {
+        //enqueue any audio
+        animAction.timelineAudios.forEach((timelineAudio) => {
+            // TODO: wait for offset seconds if not zero
+             MAudio.MAudioManager.Instance.enqueue(timelineAudio.keyName, this.boneRootNode.position); 
+        });
     }
 
     addEndActionCallback(actionName : string, callback : (ag : AnimationGroup, eventState : EventState) => void) : void 

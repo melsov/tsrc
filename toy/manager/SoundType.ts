@@ -4,7 +4,8 @@ export namespace MSoundType
     export enum SoundType
     {
         HandGunFire, 
-        ShotgunReload
+        ShotgunReload,
+        ShotgunFire
     }
  
     export function SoundTypeFromString(audioNameStr : string) : SoundType 
@@ -12,9 +13,10 @@ export namespace MSoundType
         switch(audioNameStr.toLowerCase()) {
             case "shotgunfire":
             default:
-                return SoundType.HandGunFire;
+                return SoundType.ShotgunFire;
             case "shotgunreload":
                 return SoundType.ShotgunReload;
+
         }    
     }
 }

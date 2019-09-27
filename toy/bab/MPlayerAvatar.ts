@@ -13,6 +13,7 @@ import { MJumpCurve, JumpState } from "../helpers/MCurve";
 // import { WeaponMeshImport, MShotgun } from "./NetworkEntity/weapon/MWeapon";
 import { MLoader } from "./MAssetBook";
 import { MArsenal } from "./NetworkEntity/weapon/MArsenal";
+import { MParticleManager } from "../loading/MParticleManager";
 // import undefined = require("firebase/empty-import");
 
 const physicsNudgeDist : number = .01;
@@ -87,7 +88,7 @@ export class MPlayerAvatar implements Puppet
         // this.toggleFireIndicator(false);
 
         //this.importCharacter(_name, _scene, _startPos);
-        this.importCharacterFromBook(mapPackage.assetBook);
+        this.importCharacterFromBook(mapPackage);
 
         this.debugRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
         this.fireRayHelper = new RayHelper(new Ray(new Vector3(), Vector3.Forward(), 0));
@@ -128,17 +129,23 @@ export class MPlayerAvatar implements Puppet
         this.weaponRoot.setPositionWithLocalVector(localPos);
     }
 
-    private importCharacterFromBook(assetBook : MLoader.AssetBook) : void 
+    private importCharacterFromBook(mapPackage : MLoader.MapPackage) : void 
     {
-        let loadedMeshData = assetBook.getMeshTask(MLoader.MeshFiles.Instance.player.getKey());
-        if(loadedMeshData === undefined) throw new Error(`no player mesh task`);
+        let loadedMeshData = mapPackage.assetBook.getMeshTask(MLoader.MeshFiles.Instance.player.getKey());
+        if(loadedMeshData === undefined)  {
+            console.warn(`no player mesh task. cube instead`);
+            let cube = MeshBuilder.CreateBox(`pl. box`, { size : 2 }, mapPackage.scene);
+            this.meshImport(cube, cube.name, cube.getScene(), Vector3.Zero());
+            return;
+            // throw new Error(`no player mesh task`);
+        }
         if(loadedMeshData.task === undefined) throw new Error(`no mesh task for ${MLoader.MeshFiles.Instance.player.getKey()}`);
 
         loadedMeshData.task.loadedMeshes.forEach((m : AbstractMesh) => {
             this.meshImport(<Mesh> m, this.mesh.name, this.mesh.getScene(), Vector3.Zero());
-        });
+        }); 
 
-        // We actually get our mesh from 
+        // We actually want to get our mesh from a file spec
         // TODO: we own an MSkeletonAnimator
     }
 
@@ -294,6 +301,14 @@ export class MPlayerAvatar implements Puppet
         });
 
         return pi;
+    }
+
+    //client owned player
+    createFireImpactEffects(firePinfo : Nullable<PickingInfo>) : void
+    {
+        if(firePinfo === null || firePinfo.pickedPoint === null) { console.log(`no picking info for impact effects`); return; }
+
+        MParticleManager.Instance.enqueue(this.arsenal.equipped().meshSet.impactParticleType, firePinfo.pickedPoint);
     }
     
     // client owned player
