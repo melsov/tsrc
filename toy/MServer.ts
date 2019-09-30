@@ -1,4 +1,4 @@
-import { MNetworkEntity, MNetworkPlayerEntity } from "./bab/NetworkEntity/MNetworkEntity";
+import { MNetworkEntity, MNetworkPlayerEntity, InterpData } from "./bab/NetworkEntity/MNetworkEntity";
 import * as Collections from 'typescript-collections';
 import { LagNetwork, LaggyPeerConnection, MakeLaggyPair, LAG_MS_FAKE } from "./LagNetwork";
 import { MClient } from "./MClient";
@@ -23,6 +23,10 @@ import { Mel } from "./html-gui/LobbyUI";
 import { MAudio } from "./loading/MAudioManager";
 import { GridMaterial } from "babylonjs-materials";
 import { FireActionType } from "./bab/NetworkEntity/transient/MTransientStateBook";
+import { CheckboxUI } from "./html-gui/CheckboxUI";
+import { UIDisplayDif } from "./html-gui/UIDisplayVectorDif";
+import { UILabel } from "./html-gui/UILabel";
+import { MStateBuffer } from "./MStateBuffer";
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
@@ -48,6 +52,7 @@ export enum Relevancy
 class CliEntity
 {
     public lastProcessedInput : number = 0;
+    public lastAckIndex : number = 0;
     public readonly pingGauge : MPingGauge = new MPingGauge();
     public roundTripMillis : number = LAG_MS_FAKE * 2;
     public didDisconnect : boolean = false;
@@ -71,6 +76,10 @@ class CliEntity
     constructor(
         public remotePlayer : RemotePlayer
     ){
+    }
+
+    public equals(other : CliEntity) : boolean {
+        return this.remotePlayer.user.UID === other.remotePlayer.user.UID;
     }
 
 }
@@ -103,8 +112,8 @@ export class MServer
 {
     private slog : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
-    private stateBuffer : Array<MWorldState> = new Array<MWorldState>();
-    public readonly stateBufferMaxLength : number = 45;
+    private stateBuffer = new MStateBuffer(); // : Array<MWorldState> = new Array<MWorldState>();
+    // public readonly stateBufferMaxLength : number = 45;
 
     private currentState : MWorldState = new MWorldState();
 
@@ -117,6 +126,8 @@ export class MServer
 
     // private clients : Collections.Dictionary<tfirebase.User, CliEntity> = new Collections.Dictionary<tfirebase.User, CliEntity>(tfirebase.StringForUser);
     private clients : Collections.Dictionary<string, CliEntity> = new Collections.Dictionary<string, CliEntity>();
+
+    private debugForceAbsUpdate = new CheckboxUI("forceAbsUpdate", false);
 
     // = new GameMain(TypeOfGame.Server);
 
@@ -139,6 +150,10 @@ export class MServer
     private debugFirePointMesh : Mesh;
 
     private broadcastsPerAck : number = 10; // sample ackIndices every broadcastsPerAck broadcast
+
+    private debugWatchClaimPosCli : Nullable<CliEntity> = null;
+    private debugUIShowCliClaimDif = new UIDisplayDif.UIDisplayVectorDif("cliClaimDisplay", "cli claim", "claim", "auth state");
+    private debugDeltaUps = new UILabel('debugDeltaUps');
 
     constructor(
         private game : GameMain
@@ -178,7 +193,11 @@ export class MServer
     public connect(remotePlayer : RemotePlayer) : void
     {
         let user = remotePlayer.user;
-        this.clients.setValue(user.UID, new CliEntity(remotePlayer));
+        let cli = new CliEntity(remotePlayer);
+        this.clients.setValue(user.UID, cli);
+
+        if(!this.debugWatchClaimPosCli)
+            this.debugWatchClaimPosCli = cli;
 
         let netPlayer = new MNetworkPlayerEntity(user.UID);
         let playerPuppet : MPlayerAvatar =  <MPlayerAvatar> this.puppetMaster.getPuppet(netPlayer);
@@ -240,8 +259,8 @@ export class MServer
         this.broadcastTimer.tick(this.game.engine.getDeltaTime(), () => {
             // old update
             // this.processCliCommands();
-            this.updateStateBuffer();
-            this.broadcastToClients(true); // always forcing abs updates (for now)
+            this.pushStateBuffer();
+            this.broadcastToClients(this.debugForceAbsUpdate.checked); // always forcing abs updates (for now)
 
             this.currentState.clearTransientStates(); // purge 'hits on me' for example
             this.handleDeletes();
@@ -305,15 +324,23 @@ export class MServer
             if(cli != undefined)
             {
                 cli.lastProcessedInput = qcmd.cmd.inputSequenceNumber;
+                cli.lastAckIndex = qcmd.cmd.lastWorldStateAckPiggyBack;
 
-                // ping gauge
-                if(qcmd.cmd.lastWorldStateAckPiggyBack > 0)
+                if(qcmd.cmd.lastWorldStateAckPiggyBack > 0) {
+                    // ping gauge
                     cli.pingGauge.completeAck(qcmd.cmd.lastWorldStateAckPiggyBack);
+
+                    //DEBUG show dif between cli position and position of the corresponding world state
+                    if(this.debugWatchClaimPosCli && cli.equals(this.debugWatchClaimPosCli))
+                        this.debugCompareCliClaimedPosRo(cli, qcmd.cmd.debugPosRoAfterCommand, qcmd.cmd.lastWorldStateAckPiggyBack);
+                }
+
 
                 // confirm messages with return hashes
                 cli.confirmableMessageBook.confirmArray(qcmd.cmd.confirmHashes);
 
                 if(!cli.canRespawn) { console.log(`can't respawn ${qcmd.UID}`); }
+
                 // player loadout request
                 if(qcmd.cmd.loadOutRequest && cli.canRespawn
                     && (cli.loadOut === null || MLoadOut.GetHash(cli.loadOut) !== MLoadOut.GetHash(qcmd.cmd.loadOutRequest) ||
@@ -347,22 +374,22 @@ export class MServer
         this.DebugClis();
     }
 
-    private debugDoTestFire() : void
+    
+
+
+    private debugCompareCliClaimedPosRo(cli : CliEntity, claim : InterpData, lastAck : number) : void 
     {
-        if(this.currentState.lookup.keys().length < 2) { return; }
+        let ws = this.stateBuffer.stateWithAckIndex(lastAck);
+        if(!ws) { return; }
 
-        let k = this.currentState.lookup.keys()[0];
-        let ent = this.currentState.lookup.getValue(k);
-        if(!ent) return;
-        let plent = ent.getPlayerEntity();
-        if(!plent) return;
+        let ent = ws.lookup.getValue(cli.remotePlayer.user.UID);
+        if(!ent) { throw new Error(`this is sure not to happen`); }
 
-        let fakeCMD = new CliCommand();
-        fakeCMD.fire = KeyMoves.DownUpHold.Down;
-        fakeCMD.forward = plent.playerPuppet.mesh.forward;
-        let fakeqcmd = new QueuedCliCommand(fakeCMD, plent.netId, -1);
-        this.handleFire(plent, fakeqcmd, true);
+        let plent = <MNetworkPlayerEntity>ent.getPlayerEntity();
+        let sID = plent.playerPuppet.getInterpData()
+        this.debugUIShowCliClaimDif.update(claim.position, sID.position);
     }
+
 
     private interpolateForShadows() : void // DEBUG: will interpolate shadows
     {
@@ -410,31 +437,6 @@ export class MServer
         other.teleport(firer.position.add(new Vector3(2, 0, 0)));
         return origPos;
     }
- 
-
-    // private playerFromShadow(shad : AbstractMesh) : Nullable<MNetworkPlayerEntity>
-    // {
-    //     let keys = this.currentState.lookup.keys();
-    //     for(let i=0; i< keys.length; ++i)
-    //     {
-    //         let ent = <MNetworkEntity> this.currentState.lookup.getValue(keys[i]);
-    //     // this.currentState.lookup.forEach((uid, ent) => {
-    //         let plent = ent.getPlayerEntity();
-
-    //         if(plent) console.log(`plent is ${plent.netId}`);
-    //         else console.log(`null plent? ${ent.netId}`);
-
-    //         if(plent && plent.shadow) {
-    //             if(plent.shadow.name === shad.name) { return plent; }
-    //             else { console.log(`names neq: ${plent.shadow.name} != ${shad.name}`); }
-    //         }
-    //         else if(plent) {console.log(`null shadow ? ${plent.netId}`);}
-    //         else { console.log(`null plent?? we shouldn't get here? ${ent.netId}`);}
-
-    //     } //);
-    //     console.log(`return null player from shadow`);
-    //     return null;
-    // }
 
     private DEBUG_INCLUDE_REWIND : boolean = true;
     private debugFireRayH : RayHelper = new RayHelper(new Ray(Vector3.Zero(), Vector3.One(), 1));
@@ -593,24 +595,12 @@ export class MServer
         return cli;
     }
 
-    private DebugAssertBufferOrderedByTimestamp() : void
-    {
-        if(this.stateBuffer.length <= 1) { console.log('not enough states to check order with'); return; }
-
-        for(let i=1; i<this.stateBuffer.length; ++i)
-        {
-            if(this.stateBuffer[i - 1].timestamp > this.stateBuffer[i].timestamp) { 
-                throw new Error(`out of order? ${this.stateBuffer[i].timestamp} is < ${this.stateBuffer[i - 1].timestamp}`)
-            }
-        }
-        console.log('we passed: buffers ordered by timestamp');
-    }
 
     private debugStateBufferTimes(targetTime : number, cli : CliEntity) : void 
     {
         if(this.stateBuffer.length === 0) return;
-        let first = this.stateBuffer[0];
-        let last = this.stateBuffer[this.stateBuffer.length - 1];
+        let first = this.stateBuffer.first();
+        let last = this.stateBuffer.last();
         let msg = "CONTAINS";
         if(last.timestamp < targetTime) msg = "TARGET IN FUTURE";
         else if (first.timestamp > targetTime) msg = "TARGET IN PAST";
@@ -643,7 +633,7 @@ export class MServer
         // find the state buffers just before (a) and
         // just after (b) rewindPointMillis
         for(let i=0; i<this.stateBuffer.length; ++i) {
-            let ws = this.stateBuffer[i];
+            let ws = this.stateBuffer.at(i);
             if(ws.timestamp <= rewindPointMillis) a = ws;
             else if(ws.timestamp > rewindPointMillis)
             {
@@ -688,19 +678,14 @@ export class MServer
     // create a new MWorldState and push it to the state buffer
     // clone the current state to the new state
     // bonus points: use a ring buffer for fewer allocations?
-    private updateStateBuffer() : void
+    private pushStateBuffer() : void
     {
-        if(this.stateBuffer.length >= this.stateBufferMaxLength) {
-            this.stateBuffer.shift();
-        }
-        let latestState = new MWorldState();
-        latestState.cloneFrom(this.currentState);
-        this.stateBuffer.push(latestState);
+        this.stateBuffer.pushACloneOf(this.currentState);
         this.currentState.ackIndex++;
         
         //
         // Debug: for shadows. push interpolation buffers
-        this.currentState.pushInterpolationBuffers(this.currentState); // weirdly enough current state pushes itself to the interp buffers ;P
+        this.currentState.updateAuthStatePushInterpolationBuffers(this.currentState); // weirdly enough current state pushes itself to the interp buffers ;P
 
     }
 
@@ -718,56 +703,74 @@ export class MServer
     {
         this.clients.forEach((user : string, cli : CliEntity) => 
         {
-            let cliDif = this.currentState.ackIndex - cli.lastProcessedInput;
+            // let cliDif = this.currentState.ackIndex - cli.lastProcessedInput;
             // console.log(`server current ack: ${this.currentState.ackIndex}. cli.lastAck: ${cli.lastAckIndex} statebuffer len ${this.stateBuffer.length}`);
             // if(cliDif > 0)
             {
                 
+                // add a ping gauge entry every nth broadcast
+                // if we sample too frequently, we risk having samples
+                // get shifted out before they can be confirmed
+                if(this.stateBuffer.last().ackIndex % this.broadcastsPerAck === 0)
+                    cli.pingGauge.addAck(this.stateBuffer.last().ackIndex);
+
+                let cliBaseState : Nullable<MWorldState> = forceAbsUpdate ? null : this.stateBuffer.stateWithAckDebug(cli.lastAckIndex, "SVR");
+                
                 // cli too far behind?
                 // send an abs state
                 if(forceAbsUpdate || 
-                    cliDif > this.stateBuffer.length || // too far behind?
+                    !cliBaseState ||
+                    // cliDif > this.stateBuffer.length || // too far behind?
                     cli.lastProcessedInput === 0)  // never ack'd?
                 {
-                    let state = this.stateBuffer[this.stateBuffer.length - 1].relevancyShallowClone(
+                    let state = this.stateBuffer.last().relevancyShallowClone(
                         <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user), 
                         this.game.scene, 
                         cli.relevantBook, 
                         CLOSE_BY_RELEVANT_RADIUS);
-                        let su = new ServerUpdate(state, cli.lastProcessedInput);  
-                        
-                    // add a ping gauge entry every nth broadcast
-                    // if we sample too frequently, we risk having samples
-                    // get shifted out before they can be confirmed
-                    if(state.ackIndex % this.broadcastsPerAck === 0)
-                        cli.pingGauge.addAck(state.ackIndex);
+                    let su = new ServerUpdate(state, cli.lastProcessedInput);  
 
                     // TODO: convert Server Update to 'any'
                     // so that we can decline to add properties that we don't need
 
                     // send confirmable messages
                     cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
-                    su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages(); // this.confirmableMessages;
-
+                    su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages();
+                    
                     cli.remotePlayer.peer.send(PackWorldState(su));
+
+                    this.debugDeltaUps.color = "#FFFF00";
+                    this.debugDeltaUps.text = `AU cli.AckI: ${cli.lastAckIndex} from: ${state.deltaFromIndex} to: ${state.ackIndex}`;
                 }
-                else 
+                else // Delta update
                 {
-                    throw new Error(`delta update not implemented`);
+                    // throw new Error(`delta update not implemented`);
                     // // TODO : re-design cli to enable delta updates
                     
-                    /*
-                    let cliBaseState = this.stateBuffer[this.stateBuffer.length - cliDif];
-                    MUtils.Assert(cliBaseState.ackIndex == cli.lastProcessedInput);
-                    
-                    let delta : MWorldState = this.stateBuffer[this.stateBuffer.length - 1].minus(cliBaseState);
+                    if(cliBaseState) 
+                    {
+                        let delta = this.stateBuffer.last().deltaFrom(cliBaseState);
 
-                    // // CONSIDER: save delta to a temporary dictionary. lookup before recalculating
-                    // // TODO: compress the delta
+                        // TODO: implement relevancy filtering for delta updates
 
-                    let sdelta = PackWorldState(new ServerUpdate(delta, cli.lastProcessedInput));
-                    cli.remotePlayer.peer.send(sdelta);
-                    */
+                        let su = new ServerUpdate(delta, cli.lastProcessedInput);
+
+                        su.dbgSomeState = cliBaseState; // this.stateBuffer.last(); // DEBUG
+
+                        // send confirmable messages
+                        cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
+                        su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages();
+
+                        cli.remotePlayer.peer.send(PackWorldState(su));
+
+                        this.debugDeltaUps.text = `DU cli.AckI == deltaFrom ? 
+                            ${cli.lastAckIndex === delta.deltaFromIndex ? "YES" : "NO DIF: " + (cli.lastAckIndex - delta.deltaFromIndex)} 
+                            to: ${delta.ackIndex} - from: ${delta.deltaFromIndex} = ${delta.ackIndex - delta.deltaFromIndex}`;
+
+                    } else {
+                        throw new Error(`cant happen`);
+                    }
+                   
                 }
             }
         });
@@ -794,6 +797,7 @@ export class ServerUpdate
 {
 
     public confirmableMessages : Nullable<Array<MAbstractConfirmableMessage>> = null;
+    public dbgSomeState : Nullable<MWorldState> = null;
 
     constructor(
         public worldState : MWorldState,
@@ -811,19 +815,37 @@ export function UnpackWorldState(serverUpdateString : string) : ServerUpdate
 {
     let jObj = JSON.parse(serverUpdateString);
 
-    let table = jObj.worldState.lookup.table;
-
+    
     let ws : MWorldState = new MWorldState() //jObj.worldState['isDelta']);
     ws.ackIndex = jObj.worldState.ackIndex;
-
+    ws.deltaFromIndex = jObj.worldState.deltaFromIndex;
+    
+    let table = jObj.worldState.lookup.table;
     for(let item in table)
     {
         let mnetKV = table[item];
         ws.lookup.setValue(mnetKV['key'], MNetworkEntity.deserialize(mnetKV['value']));
     }
-    
+
     let su = new ServerUpdate(ws, jObj['lastInputNumber']); //ws;
     su.confirmableMessages = MAnnounce.FromServerUpdate(jObj);
+
+    // DEBUG
+    if(jObj.dbgSomeState)
+    {
+        let aws = new MWorldState();
+        aws.ackIndex = jObj.dbgSomeState.ackIndex;
+        aws.deltaFromIndex = jObj.dbgSomeState.deltaFromIndex;
+        
+        let aTable = jObj.dbgSomeState.lookup.table;
+        for(let item in aTable)
+        {
+            let kv = aTable[item];
+            aws.lookup.setValue(kv['key'], MNetworkEntity.deserialize(kv['value']));
+        }
+        su.dbgSomeState = aws;
+    }
+    
 
     return su;
 }

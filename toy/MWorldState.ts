@@ -8,11 +8,17 @@ import { GameEntityTags } from "./GameMain";
 
 export class MWorldState
 {
-    public readonly lookup : Collections.Dictionary<string, MNetworkEntity> = new Collections.Dictionary<string, MNetworkEntity>();
+    readonly lookup : Collections.Dictionary<string, MNetworkEntity> = new Collections.Dictionary<string, MNetworkEntity>();
 
-    public getPuppet : (ent : MNetworkEntity) => Puppet;
+    getPuppet : (ent : MNetworkEntity) => Puppet;
 
-    public ackIndex : number = -1;
+    ackIndex : number = -1;
+
+    // If a delta state,
+    // the index of the state on which the delta is based
+    deltaFromIndex : number = -1;
+    get isDelta() : boolean { return this.deltaFromIndex >= 0; }
+
     public timestamp : number;
 
     constructor(
@@ -29,6 +35,16 @@ export class MWorldState
             this.lookup.setValue(key, ent.clone());
         });
 
+    }
+
+    // lamentable
+    public cloneAuthStateToInterpData() : MWorldState
+    {
+        let clone = new MWorldState();
+        this.lookup.forEach((key , ent) => {
+            clone.lookup.setValue(key, ent.cloneWithAuthStateOfOtherToInterpData());
+        });
+        return clone;
     }
 
     private static _debugRH : RayHelper = new RayHelper(new Ray(Vector3.Zero(), Vector3.One(), 1));
@@ -128,12 +144,33 @@ export class MWorldState
         });
     }
 
+    debugHasDeltaEntities() : string
+    {
+        let deltaCount = 0;
+        let len = this.lookup.keys().length;
+        this.lookup.forEach((key, ent) => {
+            if(ent.isDelta) {
+                deltaCount++;
+            }
+        });
+        return deltaCount === 0 ? "no deltas" : (deltaCount === len ? "all deltas" : `mixed delta, abs ${deltaCount} / ${len}`);
+    }
+
+    deltaFrom(other : MWorldState) : MWorldState
+    {
+        let delta = this.minus(other);
+        delta.ackIndex = this.ackIndex;
+        delta.deltaFromIndex = other.ackIndex;
+        delta.timestamp = this.timestamp;
+        return delta;
+    }
+ 
     public minus(other : MWorldState) : MWorldState
     {
         let delta = new MWorldState();
         this.lookup.forEach((key : string, ent : MNetworkEntity) => {
             let otherEnt = other.lookup.getValue(key);
-            if(otherEnt == undefined){
+            if(otherEnt === undefined){
                 delta.lookup.setValue(key, ent.clone());
             } else {
                 delta.lookup.setValue(key, ent.minus(otherEnt));
@@ -141,6 +178,42 @@ export class MWorldState
         });
 
         return delta;
+    }
+
+    // i.e. 'un - minus'
+    public addInPlaceOrCloneCreate(other : MWorldState) : void
+    {
+        other.lookup.forEach((key, otherEnt) => {
+            let thisEnt = this.lookup.getValue(key);
+            if (thisEnt === undefined) {
+                // assert otherEnt not delta
+                this.lookup.setValue(key, otherEnt.clone());
+            } else {
+                thisEnt.addInPlace(otherEnt);
+            }
+        });
+    }
+
+    debugDifsToString(other : MWorldState) : string
+    {
+        let result = "";
+        other.lookup.forEach((key, otherEnt) => {
+            let ent = this.lookup.getValue(key);
+            if(ent) {
+                result += ent.puppet.getInterpData().difToString(otherEnt.puppet.getInterpData());
+            } else {
+                result += "[]";
+            }
+        });
+        return result;
+    }
+
+    static TestMinusThenAddBack(a : MWorldState, b : MWorldState) : string
+    {
+        let delta = a.minus(b);
+        b.addInPlaceOrCloneCreate(delta);
+
+        return b.debugDifsToString(a);
     }
 
     // NOT IN USE
@@ -169,8 +242,8 @@ export class MWorldState
     // client side helper 
     private makeNetEntFrom(key : string, deltaEnt : MNetworkEntity) : MNetworkEntity
     {
-        this.lookup.setValue(key, deltaEnt.clone());
-        let ent = <MNetworkEntity> this.lookup.getValue(key);
+        let ent = deltaEnt.clone();
+        this.lookup.setValue(key, ent);
 
         // encourage this ent to set itself up
         ent.setupPuppet(this.getPuppet(ent));
@@ -204,7 +277,8 @@ export class MWorldState
 // make InterpData when the world state gets saved
 //
 
-    // client side
+    // client side (acutally nowhere, not in use!)
+    // purge?
     public apply(state : MWorldState) : void
     {
         state.lookup.forEach((key : string, nextEnt : MNetworkEntity) => {
@@ -242,17 +316,33 @@ export class MWorldState
     }
 
     // client side
-    public pushInterpolationBuffers(absState : MWorldState) : void
+    public updateAuthStatePushInterpolationBuffers(update : MWorldState) : void
     {
-        absState.lookup.forEach((key : string, absEnt : MNetworkEntity) => {
+        update.lookup.forEach((key : string, updateEnt : MNetworkEntity) => {
             let ent = this.lookup.getValue(key);
 
-            if(ent == undefined) 
-            {
-                ent = this.makeNetEntFrom(key, absEnt);
+            if(ent == undefined) {
+                ent = this.makeNetEntFrom(key, updateEnt);
             }
+           
+            ent.updateAuthState(updateEnt);
+            ent.pushInterpolationBuffer();
+            
+        });
+    }
 
-            ent.pushInterpolationBuffer(absEnt);
+    // client side
+    updateAuthState(update : MWorldState) : void 
+    {
+        update.lookup.forEach((key : string, updateEnt : MNetworkEntity) => {
+            let ent = this.lookup.getValue(key);
+
+            if(ent == undefined) {
+                ent = this.makeNetEntFrom(key, updateEnt);
+            }
+           
+            ent.updateAuthState(updateEnt);
+            
         });
     }
 

@@ -1,6 +1,7 @@
 import { Axis, Vector3, Scene, PickingInfo, PointerEventTypes, Nullable } from "babylonjs";
 import { MToggle } from "../helpers/MToggle";
 import { MLoadOut } from "./MPuppetMaster";
+import { InterpData } from "./NetworkEntity/MNetworkEntity";
 
 export namespace KeyMoves
 {
@@ -48,7 +49,7 @@ export class CliCommand
     
     lastWorldStateAckPiggyBack : number = 0;
     
-    debugPosAfterCommand : Vector3 = Vector3.Zero();
+    debugPosRoAfterCommand : InterpData = new InterpData();
     
     timestamp : number = 0;
 

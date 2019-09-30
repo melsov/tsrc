@@ -206,9 +206,9 @@ export class GameMain
         }
 
         let floor = MeshBuilder.CreateBox('box-floor', {
-            width : long * 2,
+            width : long * 200,
             height : h,
-            depth : long * 2
+            depth : long * 200
         }, this.scene);
         floor.position = new Vector3(0, -h, 0);
         Tags.AddTagsTo(floor, GameEntityTags.Terrain);

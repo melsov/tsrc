@@ -59,10 +59,23 @@ export namespace MUtils
         return (isNaN(v.x) || isNaN(v.y) || isNaN(v.z));
     }
 
+    export function FormatFloat(f:number, places : number) : string {
+        return (Math.round(f * Math.pow(10, places))/Math.pow(10, places)).toFixed(places);
+    }
+
+    export function FormatVector(v:Vector3, places : number) : string {
+        return `[${FormatFloat(v.x, places)},${FormatFloat(v.y, places)},${FormatFloat(v.z,places)}]`;
+    }
+
 
     export function CopyXZInPlace(to : Vector3, from : Vector3) : void
     {
         to.x = from.x; to.z = from.z;
+    }
+
+    export function AddXZInPlace(target : Vector3, increment : Vector3) : void 
+    {
+        target.x += increment.x; target.z += increment.z;
     }
 
     //

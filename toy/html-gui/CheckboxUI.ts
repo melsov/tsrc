@@ -1,3 +1,4 @@
+import { GUIUtil } from "./GUIUtil";
 
 export class CheckboxUI
 {
@@ -5,6 +6,7 @@ export class CheckboxUI
 
     constructor(name : string, defaultVal ? : boolean)
     {
+        GUIUtil
         this.checkbox = <HTMLInputElement> document.getElementById(name);
         if(defaultVal != undefined)
         {

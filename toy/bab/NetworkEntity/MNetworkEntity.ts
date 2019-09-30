@@ -14,6 +14,8 @@ export abstract class MNetworkEntity
 {
     public abstract entityType : number;
 
+    public lastAuthoritativeState : InterpData = new InterpData();
+
     public abstract puppet : Puppet;
 
     public get shouldDelete() : boolean {return false; }
@@ -38,7 +40,9 @@ export abstract class MNetworkEntity
 
     public abstract apply(update : MNetworkEntity) : void;
 
-    public abstract pushInterpolationBuffer(absUpdate : MNetworkEntity) : void;
+    abstract updateAuthState(update : MNetworkEntity) : void;
+
+    public abstract pushInterpolationBuffer() : void //absUpdate : MNetworkEntity) : void;
 
     public abstract interpolate(serverUpdateIntervalMillis : number) : void;
 
@@ -63,7 +67,11 @@ export abstract class MNetworkEntity
 
     public abstract clone() : MNetworkEntity;
 
+    abstract cloneWithAuthStateOfOtherToInterpData() : MNetworkEntity;
+
     public abstract minus(other : MNetworkEntity) : MNetworkEntity;
+
+    public abstract addInPlace(delta : MNetworkEntity) : void;
 
     public abstract plus(other : MNetworkEntity) : MNetworkEntity;
 
@@ -96,6 +104,23 @@ export class InterpData
         return other;
     }
 
+    minus(other : InterpData) : InterpData
+    {
+        return new InterpData(this.position.subtract(other.position), this.rotation.subtract(other.rotation));
+    }
+
+    addInPlace(other : InterpData) : void 
+    {
+        this.position.addInPlace(other.position);
+        this.rotation.addInPlace(other.rotation);
+    }
+
+    addXZInPlace(other : InterpData) : void 
+    {
+        MUtils.AddXZInPlace(this.position, other.position);
+        MUtils.AddXZInPlace(this.rotation, other.rotation);
+    }
+
     copyFrom(other : InterpData) : void
     {
         this.position.copyFrom(other.position);
@@ -108,6 +133,19 @@ export class InterpData
         l.position = Vector3.Lerp(a.position, b.position, t);
         l.rotation = Vector3.Lerp(a.rotation, b.rotation, t);
         return l;
+    }
+
+
+    static FromJSON(idj : any) : InterpData
+    {
+        return new InterpData(BHelpers.Vec3FromJSON(idj.position), BHelpers.Vec3FromJSON(idj.rotation));
+    }
+
+    difToString(other : InterpData) : string
+    {
+        let delta = this.position.subtract(other.position);
+        if(delta.lengthSquared() < .00001) { return 'small'; }
+        return MUtils.FormatVector(delta, 4); 
     }
 }
 
@@ -140,9 +178,17 @@ class SendDataPlayerEntity
 //
 export class OtherPlayerInterpolation
 {
-    //public position : Vector3 = new Vector3();
     interpData : InterpData = new InterpData();
     public timestamp : number = 0;
+
+    constructor(
+        interpData ? : InterpData,
+        timestamp ? : number
+    ) {
+        if(interpData) { this.interpData = interpData; }
+        if(timestamp) { this.timestamp = timestamp; }
+    }
+
 }
 
 export class CliTarget
@@ -193,7 +239,10 @@ function FromToInterp(a : OtherPlayerInterpolation, b : OtherPlayerInterpolation
 export class MNetworkPlayerEntity extends MNetworkEntity
 {
     public get netId(): string { return this._netId; } // sendData.netId; }
+
     public get position() : Babylon.Vector3 { return this.playerPuppet.getInterpData().position; } // this.sendData.position; }
+    public getPuppetInterpDataClone() : InterpData { return this.playerPuppet.getInterpData(); }
+
     public get entityType() : number { return EntityType.PLAYER; }; // = <number> EntityType.PLAYER;
 
     protected isClientControlledPlayer() : boolean { return false; }
@@ -271,7 +320,18 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     public clone() : MNetworkPlayerEntity
     {
-        let npe = new MNetworkPlayerEntity(this.netId, this.position, this.puppet.getInterpData().rotation);
+        let id = this.puppet.getInterpData();
+        let npe = new MNetworkPlayerEntity(this.netId, id.position, id.rotation);
+        npe.health = this.health;
+
+        MNetworkPlayerEntity.CloneTransientData(this, npe);
+        return npe;
+    }
+
+    cloneWithAuthStateOfOtherToInterpData() : MNetworkPlayerEntity
+    {
+        let id = this.lastAuthoritativeState;
+        let npe = new MNetworkPlayerEntity(this.netId, id.position, id.rotation);
         npe.health = this.health;
 
         MNetworkPlayerEntity.CloneTransientData(this, npe);
@@ -437,9 +497,6 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
         this.health = update.health;
 
-         
-
-
         // want delta compression
         // if(update.isDelta)
         // {
@@ -476,7 +533,7 @@ export class MNetworkPlayerEntity extends MNetworkEntity
     {
         let opi = new OtherPlayerInterpolation();
         try {
-            opi.interpData.position.copyFrom(this.position);
+            // opi.interpData.position.copyFrom(this.position);
             opi.interpData.copyFrom(this.puppet.getInterpData());
         } catch {
             console.log(`our mesh exists ? ${this.playerPuppet.mesh}`);
@@ -485,10 +542,25 @@ export class MNetworkPlayerEntity extends MNetworkEntity
         return opi;
     }
     
-    public pushInterpolationBuffer(absUpdate: MNetworkPlayerEntity): void 
+    // public pushInterpolationBuffer(absUpdate: MNetworkPlayerEntity): void 
+    // {
+    //     this.interpBuffer.push(absUpdate.getInterpolationData());
+    // } 
+    pushInterpolationBuffer() : void {
+        this.interpBuffer.push(new OtherPlayerInterpolation(this.lastAuthoritativeState, +new Date()));
+    }
+
+    updateAuthState(update : MNetworkEntity) : void 
     {
-        this.interpBuffer.push(absUpdate.getInterpolationData());
-    } 
+        if(update.isDelta) {
+            console.log("up auth state: is delta");
+            this.lastAuthoritativeState.addInPlace(update.puppet.getInterpData());
+        } else {
+            this.lastAuthoritativeState.copyFrom(update.puppet.getInterpData());
+        }
+    }
+
+    // to do add
 
     public interpolate(rewindIntervalMillis : number) : void
     {
@@ -552,11 +624,25 @@ export class MNetworkPlayerEntity extends MNetworkEntity
 
     public minus(other : MNetworkPlayerEntity) : MNetworkPlayerEntity
     {
-        let pos = this.position.subtract(other.position);
-        let npe = new MNetworkPlayerEntity(this.netId, pos);
+        let id = this.getPuppetInterpDataClone();        
+        let otherID = other.getPuppetInterpDataClone();
+        let delta = id.minus(otherID);
+
+        // CONSIDER: this constructor causes an unneeded extra copying of interp data.
+        // TODO: just change it so that it takes an optional InterpData arg instead of pos ro separately.
+        let npe = new MNetworkPlayerEntity(this.netId, delta.position, delta.rotation);
         MNetworkPlayerEntity.CloneTransientData(this, npe);
         npe.isDelta = true;
         return npe;
+    }
+
+    public addInPlace(delta : MNetworkPlayerEntity) : void
+    {
+        let id = this.getPuppetInterpDataClone();
+        let otherID = delta.getPuppetInterpDataClone();
+
+        id.addInPlace(otherID);
+        this.puppet.setInterpData(id);
     }
 
     public plus(other : MNetworkEntity) : MNetworkEntity

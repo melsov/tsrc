@@ -11,13 +11,15 @@ export class FPSCam
 
     constructor(
         public readonly cam : UniversalCamera,
-        public followTarget : TransformNode
+        public followTarget : TransformNode,
+        offset ? : Vector3
     ){
 
         this.cam.setTarget(this.cam.position.add(this.followTarget.forward.scale(5)));
         this.root = new TransformNode("cam-root", this.followTarget.getScene());
         this.root.position.copyFrom(this.cam.position);
         this.root.parent = this.cam;
+        if(offset) { this.offset = offset; }
     }
 
     forward() : Vector3

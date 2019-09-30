@@ -27,7 +27,7 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     public applyCliCommand(cliCommand : CliCommand) : void
     {
         this.playerPuppet.pushCliTargetWithCommand(cliCommand);
-
+ 
     }
     
     createImmediateEffectsFromInput(cliCommand : CliCommand) : void
@@ -52,18 +52,35 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
 
     }
 
-    public apply(ent : MNetworkPlayerEntity) : void
+    applyAuthStateToCliTargets() : void 
+    {
+        // pinch
+        MUtils.CopyXZInPlace(this.playerPuppet.cliTarget.interpData.position, this.lastAuthoritativeState.position);
+        this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
+    }
+
+    applyNonDeltaData(ent : MNetworkPlayerEntity) : void 
     {
         this.shouldDelete = ent.shouldDelete;
-
+    
         this.health = ent.health;
         this.statusHUD.update();
+    }
 
-        // pinch cli targets
-        MUtils.CopyXZInPlace(this.playerPuppet.cliTarget.interpData.position, ent.position); // cli player controls their own y (this is dicey?)
-        // this.playerPuppet.cliTarget.interpData.position.copyFrom(ent.position);
+    public apply(ent : MNetworkPlayerEntity) : void
+    {
+        throw new Error(`hopefully never called`);
+        // if(ent.isDelta) // wrong because the cli target is never rewound 
+        // {
+        //     this.playerPuppet.cliTarget.interpData.addXZInPlace(ent.getPuppetInterpDataClone());
+        // } 
+        // else 
+        // {
+        //     MUtils.CopyXZInPlace(this.playerPuppet.cliTarget.interpData.position, ent.position); // cli player controls their own y (this is dicey?)
+        // }
 
-        this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
+        // // pinch current and last cli targets
+        // this.playerPuppet.lastCliTarget.copyFrom(this.playerPuppet.cliTarget);
 
     }
 

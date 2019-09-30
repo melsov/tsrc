@@ -1,13 +1,13 @@
 import { LagNetwork, LaggyPeerConnection, LAG_MS_FAKE } from "./LagNetwork";
 import * as MServer from "./MServer";
 //import { Fakebase } from "./Fakebase";
-import { MNetworkPlayerEntity, MNetworkEntity } from "./bab/NetworkEntity/MNetworkEntity";
+import { MNetworkPlayerEntity, MNetworkEntity, InterpData } from "./bab/NetworkEntity/MNetworkEntity";
 import { GameMain, TypeOfGame } from "./GameMain";
 import { MWorldState } from "./MWorldState";
 import { MPuppetMaster, MLoadOut } from "./bab/MPuppetMaster";
 import { CliCommand, MPlayerInput, KeyMoves } from "./bab/MPlayerInput";
 import { DebugHud } from "./html-gui/DebugHUD";
-import { Color3, Vector3, AssetsManager, MeshAssetTask, TransformNode } from "babylonjs";
+import { Color3, Vector3, AssetsManager, MeshAssetTask, TransformNode, Nullable } from "babylonjs";
 import { MPlayerAvatar } from "./bab/MPlayerAvatar";
 import { CheckboxUI } from "./html-gui/CheckboxUI";
 import { MUtils } from "./Util/MUtils";
@@ -26,6 +26,8 @@ import { MAudio } from "./loading/MAudioManager";
 import { MLoader } from "./bab/MAssetBook";
 import { UIVector3 } from "./html-gui/UIVector3";
 import { MParticleManager } from "./loading/MParticleManager";
+import { UILabel } from "./html-gui/UILabel";
+import { MStateBuffer } from "./MStateBuffer";
 
 
 
@@ -54,6 +56,7 @@ export function CommandFromString(str : string) : CliCommand
     let cmd = <CliCommand> JSON.parse(str);
     cmd.forward = BHelpers.Vec3FromJSON(cmd.forward);
     cmd.rotation = BHelpers.Vec3FromJSON(cmd.rotation);
+    cmd.debugPosRoAfterCommand = InterpData.FromJSON(cmd.debugPosRoAfterCommand);
     return cmd;
 }
 
@@ -62,6 +65,7 @@ export class MClient
 
     public readonly playerEntity : ClientControlledPlayerEntity;
     private clientViewState : MWorldState = new MWorldState();
+    private stateBuffer : MStateBuffer = new MStateBuffer();
     private puppetMaster : MPuppetMaster;
 
     public readonly fpsCam : FPSCam;
@@ -72,9 +76,12 @@ export class MClient
     private debugHud : DebugHud;
     private debugHudInfo : DebugHud;
 
+    private debugDeltaUpdates = new UILabel("debugDeltaUpdates", "#33FF88");
+
     private entityInterpolation : CheckboxUI = new CheckboxUI('interpolation', true);
     private serverReconciliation : CheckboxUI = new CheckboxUI('reconciliation', true);
     private clientSidePrediction : CheckboxUI = new CheckboxUI('prediction', true);
+    private justIgnoreServer : CheckboxUI = new CheckboxUI('ignoreServer', false); 
 
     private lobbyUI : Mel.LobbyUI = new Mel.LobbyUI();
 
@@ -99,6 +106,7 @@ export class MClient
     private requestLoadOutFunc : () => void = () => {};
 
     private debugWeapOffsetUI : UIVector3;
+    private debugCliDataBeforeReconciliation : InterpData = new InterpData();
 
     constructor(
         public readonly user : tfirebase.User,
@@ -131,7 +139,7 @@ export class MClient
         playerPuppet.addDebugLinesInRenderLoop();
         this.setupManagers();
 
-        this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh);
+        this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh, Vector3.Up().scale(8));
 
         playerPuppet.setupClientPlayer(this.fpsCam.cam);
 
@@ -305,7 +313,7 @@ export class MClient
         
         command.inputSequenceNumber = this.inputSequenceNumber++;
         command.forward = this.fpsCam.forward();
-        command.rotation = this.game.camera.rotation.clone();
+        command.rotation = this.game.camera.rotation.clone(); // ? not fps cam rotation?
 
         if (this.clientSidePrediction.checked)
         {
@@ -333,7 +341,11 @@ export class MClient
             }
         }
         
-        command.debugPosAfterCommand = this.playerEntity.position;
+        //TODO: instead send the pos before prediction is applied
+        // referencing this with last ack index 
+        // the server should be able to check if the position 
+        // matches the position it sees at that ack
+        command.debugPosRoAfterCommand = this.debugCliDataBeforeReconciliation; // this.playerEntity.position;
 
         this.send(CommandToString(command));
         this.pendingInputs.push(command);
@@ -353,7 +365,7 @@ export class MClient
             // throw out this update (msg can arrive out of order)
             
             let msg = this.fromServer.dequeue(); // this.peerConnection.receiveChannel.receive();
-            if(msg === null || msg === undefined)
+            if(msg === null || msg === undefined || this.justIgnoreServer.checked)
             {
                 break;
             }
@@ -375,6 +387,7 @@ export class MClient
 
             let serverUpdate : MServer.ServerUpdate = MServer.UnpackWorldState(msg);
 
+
             //announcements
             if(serverUpdate.confirmableMessages)
             {
@@ -385,18 +398,64 @@ export class MClient
             }
 
             let nextState = serverUpdate.worldState;
-           
-  
-            // TODO: figure out how to handle deltas
-            // along with interpolation
-            // perhaps keep track of separate states:
-            // the current authoratative state
-            // the interpolated state 
-            this.clientViewState.ackIndex = nextState.ackIndex;
 
-            if(this.entityInterpolation.checked)
+            this.debugDeltaUpdates.text = "";
+           
+            let absNextState : Nullable<MWorldState> = null;
+            if(!nextState.isDelta) {
+                absNextState = nextState;
+            } else {
+                // TODO: 'cheat' send abs update anyway for comparison
+                // TODO: test whether delta = b - a === a + delta
+
+                // find the base state 
+                let baseState = this.stateBuffer.stateWithAckDebug(nextState.deltaFromIndex, "CLI");
+                if(!baseState) {
+                    console.warn(`we probably want to deal with this case`);
+                    this.debugDeltaUpdates.text = `!!! null base state! next.deltaFromIndex ${nextState.deltaFromIndex}`;
+                    // CONSIDER: we could tell the server that we need an abs update?
+                    // could lengthen our state buffer if we're getting deltas from too long ago
+                    continue;
+                }
+
+                absNextState = new MWorldState();
+
+                // CONSIDER: we could clone/create only the entities that exist in next State (it might have relevancy filtering)
+                absNextState.cloneFrom(baseState);
+                // absNextState.updateAuthState(nextState);
+                absNextState.addInPlaceOrCloneCreate(nextState);
+                absNextState.ackIndex = nextState.ackIndex;
+
+                // DEBUG
+                if(serverUpdate.dbgSomeState) {
+                    this.debugDeltaUpdates.text += `SVR BASE ${serverUpdate.dbgSomeState.ackIndex} - CLI BASE ${baseState.ackIndex} = ${serverUpdate.dbgSomeState.ackIndex - baseState.ackIndex}`;
+                    // this.debugDeltaUpdates.text += "TEST " + MWorldState.TestMinusThenAddBack(serverUpdate.debugAbsStateAnyway, baseState) + " | ";
+                    this.debugDeltaUpdates.text += " | same base? " + baseState.debugDifsToString(serverUpdate.dbgSomeState);
+
+                } else {
+                    this.debugDeltaUpdates.text += "no abs";
+                }
+            }
+
+            // curate state buffer
+            // get an abs state
+            
+            // let debugDeltaWithCli = this.clientViewState.ackIndex - nextState.deltaFromIndex;
+            // this.debugDeltaUpdates.text = `cli ack: ${this.clientViewState.ackIndex} cli - delta: ${debugDeltaWithCli} next - delta: ${nextState.ackIndex - nextState.deltaFromIndex}`;
+            this.debugDeltaUpdates.text += `**abs state delta? ${absNextState.debugHasDeltaEntities()} | `;
+            // this.debugDeltaUpdates.text += `pending cmds: ${this.pendingInputs.length}. ${(<MPlayerAvatar>this.playerEntity.puppet).debugTargets()}`;
+
+            this.clientViewState.ackIndex = absNextState.ackIndex;
+
+            if(this.entityInterpolation.checked) // it had better be
             {
-                this.clientViewState.pushInterpolationBuffers(nextState); // nextState);
+                // "assert" absNextState is an abs state
+                this.clientViewState.updateAuthStatePushInterpolationBuffers(absNextState); // nextState);
+                let pushClone = this.clientViewState.cloneAuthStateToInterpData();
+                pushClone.ackIndex = this.clientViewState.ackIndex;
+                // push the latest client view state
+                this.stateBuffer.push(pushClone);
+                
             }
             else 
             {
@@ -416,39 +475,34 @@ export class MClient
             //
             this.clientViewState.pushStateChanges(nextState);
             this.clientViewState.purgeDeleted(nextState);
-
-           
-
+            
+            
+            let nextCliPlayerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
+            // put the cli controlled player in the server authoritative state
+            this.playerEntity.applyAuthStateToCliTargets();
+            this.playerEntity.applyNonDeltaData(nextCliPlayerState);
+            
+            if(!this.gotFirstServerMessage) {
+                this.playerEntity.teleport(nextCliPlayerState.position);
+                this.gotFirstServerMessage = true;
+            }
+            
+            this.debugCliDataBeforeReconciliation = this.playerEntity.lastAuthoritativeState.clone(); // getInterpData();
             //
             // server reconciliation
             // purge cli commands older than server update 
             // re-apply cli commands past the server update
             //
-           
-            // put our player in the server authoritative state
-            let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
-            if(playerState.playerPuppet && playerState.playerPuppet.mesh) console.warn(`got svr pos: ${playerState.playerPuppet.mesh.position}`)
-            this.playerEntity.apply(playerState);
-
-            if(!this.gotFirstServerMessage) {
-                this.playerEntity.teleport(playerState.position);
-                this.gotFirstServerMessage = true;
-            }
-
-
             // / ******
             if(this.serverReconciliation.checked && this.clientSidePrediction.checked)
             {
-                // // put our player in the server authoritative state
-                // let playerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
-                // this.playerEntity.apply(playerState);
 
                 // reapply newer inputs
                 let j = 0;
 
                 while(j < this.pendingInputs.length)
                 {
-                    let input = this.pendingInputs[j];
+                    let input = this.pendingInputs[j]; 
                     if(input.inputSequenceNumber <= serverUpdate.lastInputNumber)
                     {
                         // server has already seen this input
@@ -462,14 +516,15 @@ export class MClient
                     }
 
                     // DEBUG:
-                    // We sometimes 'think' we're seeing a jumpy adjustment in player puppet movement
-                    // which we wanted to blame on a mismatch between server authoritative pos and cli
+                    // We sometimes think we're seeing a jumpy adjustment in player puppet movement
+                    // which we want to blame on a mismatch between server authoritative pos and cli
                     // command aggregated pos. but we can't find it here:
                     //let dif = this.playerEntity.position.subtract(input.debugPosAfterCommand);
                     //console.log(`dif pos reached: ${dif.length()}`);
                     
                 }
 
+                this.debugDeltaUpdates.text += `pending after: ${this.pendingInputs.length}`
                 // debug pos after command
             }
            // */ 

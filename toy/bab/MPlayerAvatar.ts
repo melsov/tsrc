@@ -38,6 +38,8 @@ export class MPlayerAvatar implements Puppet
 {
     
     mesh : Mesh;
+    // private _camFollowTarget : TransformNode;
+    // get camFollowTarget() : TransformNode { return this._camFollowTarget; }
     debugRayHelper : RayHelper;
     fireRayHelper : RayHelper;
     private fireIndicatorMesh : Mesh;
@@ -61,7 +63,7 @@ export class MPlayerAvatar implements Puppet
     private MAX_MULTI_JUMPS = 3;
     private remainingJumps = 3;
 
-    public moveSpeed : number = .1;
+    public moveSpeed : number =  1;
     
     private debugShowHitTimer : MFlopbackTimer = new MFlopbackTimer(3);
     private debugHitPointMesh : Mesh;
@@ -98,7 +100,13 @@ export class MPlayerAvatar implements Puppet
 
         this.arsenal = MArsenal.MakeDefault(mapPackage);
         this.weaponRoot = new TransformNode(`weaponRoot`, _scene);
+        
         this.setupDefaultWeapon();
+
+        // cam follow target
+        // this._camFollowTarget = new TransformNode('cam-follow', _scene);
+        // this._camFollowTarget.parent = this.mesh;
+        // this._camFollowTarget.setPositionWithLocalVector(Vector3.Up().scale(8)); // debug
 
     }
 
@@ -118,8 +126,7 @@ export class MPlayerAvatar implements Puppet
         this.weaponRoot.setPositionWithLocalVector(new Vector3(2.44, -2, 4)); 
 
         // render in front
-        let meshes = this.weaponRoot.getChildMeshes(false);
-        meshes.forEach((m : AbstractMesh) => {
+        this.weaponRoot.getChildMeshes(false).forEach((m : AbstractMesh) => {
             m.renderingGroupId = 3;
         });
     }
@@ -627,6 +634,9 @@ export class MPlayerAvatar implements Puppet
         return id;
     }
 
+    // Troubles: we really need to consider separating 
+    // the auth state (interp data) from a puppet's (for example) pos / rotation
+
     // server 
     applyCommandServerSide(cmd : CliCommand) : void
     {
@@ -671,6 +681,11 @@ export class MPlayerAvatar implements Puppet
         this.lastCliTarget.copyFrom(this.cliTarget);
         let next = this.makeNextTargetWithCollisions(cmd);
         this.cliTarget.copyFrom(next);
+    }
+
+    debugTargets() : string
+    {
+        return `delta cli targets: ${this.cliTarget.interpData.position.subtract(this.lastCliTarget.interpData.position)}`;
     }
 
     // todo: get a pos adjusted for collisions
