@@ -405,9 +405,6 @@ export class MClient
             if(!nextState.isDelta) {
                 absNextState = nextState;
             } else {
-                // TODO: 'cheat' send abs update anyway for comparison
-                // TODO: test whether delta = b - a === a + delta
-
                 // find the base state 
                 let baseState = this.stateBuffer.stateWithAckDebug(nextState.deltaFromIndex, "CLI");
                 if(!baseState) {
@@ -449,8 +446,18 @@ export class MClient
 
             if(this.entityInterpolation.checked) // it had better be
             {
-                // "assert" absNextState is an abs state
                 this.clientViewState.updateAuthStatePushInterpolationBuffers(absNextState); // nextState);
+
+                // SERMON:
+                // the following method call is a regrettable side effect of having both 'lastAuthState' and puppet 'interpdata'
+                // really have to re-design the whole relationship between sent data and 
+                // in-game applied data.
+                // Thinking that: sent data should not be tied to anything in game; it's just a spreadsheet.
+                // In game things 'stamp' themselves as send data (on the server)
+                // In game things update their interpdata with received send data (on the client).
+                // ...what am I not thinking of...both cli and server have a collection of puppets
+                // and a buffer of world states (collections of send data organized by ackIndex)
+                // would need send data classes (?) for each type of puppet (players, pickups)
                 let pushClone = this.clientViewState.cloneAuthStateToInterpData();
                 pushClone.ackIndex = this.clientViewState.ackIndex;
                 // push the latest client view state
@@ -493,13 +500,11 @@ export class MClient
             // purge cli commands older than server update 
             // re-apply cli commands past the server update
             //
-            // / ******
+
             if(this.serverReconciliation.checked && this.clientSidePrediction.checked)
             {
-
                 // reapply newer inputs
                 let j = 0;
-
                 while(j < this.pendingInputs.length)
                 {
                     let input = this.pendingInputs[j]; 
@@ -514,20 +519,10 @@ export class MClient
                         this.playerEntity.applyCliCommand(input);
                         j++;
                     }
-
-                    // DEBUG:
-                    // We sometimes think we're seeing a jumpy adjustment in player puppet movement
-                    // which we want to blame on a mismatch between server authoritative pos and cli
-                    // command aggregated pos. but we can't find it here:
-                    //let dif = this.playerEntity.position.subtract(input.debugPosAfterCommand);
-                    //console.log(`dif pos reached: ${dif.length()}`);
-                    
                 }
 
                 this.debugDeltaUpdates.text += `pending after: ${this.pendingInputs.length}`
-                // debug pos after command
             }
-           // */ 
            
         } // END WHILE TRUE
 

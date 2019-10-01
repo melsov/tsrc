@@ -49,7 +49,6 @@ export class MWorldState
 
     private static _debugRH : RayHelper = new RayHelper(new Ray(Vector3.Zero(), Vector3.One(), 1));
     
-
     public relevancyShallowClone(
         observer : MNetworkPlayerEntity | undefined, 
         scene : Scene, 
@@ -60,7 +59,32 @@ export class MWorldState
         ws.ackIndex = this.ackIndex;
         ws.timestamp = this.timestamp;
 
-        if(observer === undefined) { return ws; }
+        this.relevancyFilter(
+            observer, 
+            scene,
+            relevantBook,
+            closeByRadius,
+            (relevancy, key, ent) => {
+                if(relevancy > MServer.Relevancy.NOT_RELEVANT) {
+                    ws.setEntity(key, ent);
+                }
+            }
+        );
+
+        return ws;
+    }
+
+    public relevancyFilter(
+        observer : MNetworkPlayerEntity | undefined, 
+        scene : Scene, 
+        relevantBook : Collections.Dictionary<string, number>, 
+        closeByRadius : number,
+        callback : (relevancy : MServer.Relevancy, key : string, ent : MNetworkEntity) => void
+        ) : void
+    {
+        
+
+        if(observer === undefined) { return; } // ws; }
         
         let keys = this.lookup.keys();
         let key : string = '';
@@ -129,11 +153,12 @@ export class MWorldState
             relevancy--;
             relevantBook.setValue(key, relevancy);
 
-            if(relevancy > MServer.Relevancy.NOT_RELEVANT) {
-                ws.lookup.setValue(key, ent);
-            }
+            callback(relevancy, key, ent);
+            // if(relevancy > MServer.Relevancy.NOT_RELEVANT) {
+            //     ws.lookup.setValue(key, ent);
+            // }
         }
-        return ws;
+        // return ws;
     }
 
     public debugCheckPositions() : void
@@ -156,6 +181,37 @@ export class MWorldState
         return deltaCount === 0 ? "no deltas" : (deltaCount === len ? "all deltas" : `mixed delta, abs ${deltaCount} / ${len}`);
     }
 
+    relevancyShallowCloneOrDeltaFrom(
+        other : MWorldState,
+        observer : MNetworkPlayerEntity | undefined, 
+        scene : Scene, 
+        relevantBook : Collections.Dictionary<string, number>, 
+        closeByRadius : number,) : MWorldState
+    {
+        let delta = new MWorldState();
+        delta.ackIndex = this.ackIndex;
+        delta.deltaFromIndex = other.ackIndex;
+        delta.timestamp = this.timestamp;
+
+        this.relevancyFilter(
+            observer,
+            scene,
+            relevantBook,
+            closeByRadius,
+            (relevancy, key, ent) => {
+                if(relevancy > MServer.Relevancy.NOT_RELEVANT) {
+                    let baseEnt = other.lookup.getValue(key);
+                    if(!baseEnt) {
+                        delta.lookup.setValue(key, ent);
+                    } else {
+                        delta.lookup.setValue(key, ent.minus(baseEnt));
+                    }
+                }
+            }
+        );
+        return delta;
+    }
+
     deltaFrom(other : MWorldState) : MWorldState
     {
         let delta = this.minus(other);
@@ -165,7 +221,7 @@ export class MWorldState
         return delta;
     }
  
-    public minus(other : MWorldState) : MWorldState
+    private minus(other : MWorldState) : MWorldState
     {
         let delta = new MWorldState();
         this.lookup.forEach((key : string, ent : MNetworkEntity) => {
@@ -180,8 +236,8 @@ export class MWorldState
         return delta;
     }
 
-    // i.e. 'un - minus'
-    public addInPlaceOrCloneCreate(other : MWorldState) : void
+    // 'un - minus' (client)
+    addInPlaceOrCloneCreate(other : MWorldState) : void
     {
         other.lookup.forEach((key, otherEnt) => {
             let thisEnt = this.lookup.getValue(key);
@@ -321,13 +377,23 @@ export class MWorldState
         update.lookup.forEach((key : string, updateEnt : MNetworkEntity) => {
             let ent = this.lookup.getValue(key);
 
-            if(ent == undefined) {
+            if(ent === undefined) {
                 ent = this.makeNetEntFrom(key, updateEnt);
             }
            
             ent.updateAuthState(updateEnt);
             ent.pushInterpolationBuffer();
             
+        });
+
+        // the update may not contain all entities
+        // (some may have been deemed irrelevant or have had zero deltas)
+        // push the interpolation buffers for these ents as well, to avoid repeatedly
+        // replaying the last known from-to interpolation. 
+        this.lookup.forEach((key, ent) => {
+            if(!update.lookup.getValue(key)) {
+                ent.pushInterpolationBuffer();
+            }
         });
     }
 

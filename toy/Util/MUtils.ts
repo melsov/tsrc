@@ -59,6 +59,17 @@ export namespace MUtils
         return (isNaN(v.x) || isNaN(v.y) || isNaN(v.z));
     }
 
+    export function RoundToReasonable(f:number) : number {
+        return Math.round(f * 300)/300;
+    }
+
+    export function RoundVecInPlaceToReasonable(v:Vector3) 
+    {
+        v.x = RoundToReasonable(v.x);
+        v.y = RoundToReasonable(v.y);
+        v.z = RoundToReasonable(v.z);
+    }
+
     export function FormatFloat(f:number, places : number) : string {
         return (Math.round(f * Math.pow(10, places))/Math.pow(10, places)).toFixed(places);
     }

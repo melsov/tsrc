@@ -744,14 +744,17 @@ export class MServer
                 }
                 else // Delta update
                 {
-                    // throw new Error(`delta update not implemented`);
-                    // // TODO : re-design cli to enable delta updates
-                    
                     if(cliBaseState) 
                     {
-                        let delta = this.stateBuffer.last().deltaFrom(cliBaseState);
-
-                        // TODO: implement relevancy filtering for delta updates
+                        // let delta = this.stateBuffer.last().deltaFrom(cliBaseState);
+                        let delta = this.stateBuffer.last().relevancyShallowCloneOrDeltaFrom(
+                            cliBaseState,
+                            <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user),
+                            this.game.scene,
+                            cli.relevantBook,
+                            CLOSE_BY_RELEVANT_RADIUS);
+                        
+                       
 
                         let su = new ServerUpdate(delta, cli.lastProcessedInput);
 
@@ -836,7 +839,7 @@ export function UnpackWorldState(serverUpdateString : string) : ServerUpdate
         let aws = new MWorldState();
         aws.ackIndex = jObj.dbgSomeState.ackIndex;
         aws.deltaFromIndex = jObj.dbgSomeState.deltaFromIndex;
-        
+
         let aTable = jObj.dbgSomeState.lookup.table;
         for(let item in aTable)
         {
