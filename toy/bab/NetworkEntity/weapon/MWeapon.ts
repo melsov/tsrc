@@ -169,6 +169,7 @@ export abstract class MAbstractWeapon
         this.decrementAmmoFillClip();
     }
 
+    // play reload. triggers fill clip callback
     public playReload() 
     {
         if(!this.effects.animations.skelAnimator.isPlaying("Reload"))

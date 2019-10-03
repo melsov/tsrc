@@ -63,7 +63,7 @@ export class MPlayerAvatar implements Puppet
     private MAX_MULTI_JUMPS = 3;
     private remainingJumps = 3;
 
-    public moveSpeed : number =  1;
+    public moveSpeed : number =  .1;
     
     private debugShowHitTimer : MFlopbackTimer = new MFlopbackTimer(3);
     private debugHitPointMesh : Mesh;
@@ -281,15 +281,27 @@ export class MPlayerAvatar implements Puppet
     get currentProjectileType() : ProjectileType { return ProjectileType.GenericLaser; }
 
     // server
-    commandFire(duh : KeyMoves.DownUpHold, forward : Vector3) : Nullable<PickingInfo>
+    commandFire(cliCommand : CliCommand) : Nullable<PickingInfo>
     {
-        if(!this.arsenal.equipped().hasAmmoAndKeyAllowsFire(duh)) {
-            return null;
-        }
+        // if(this.arsenal.equipped().keyAllowsFire(cliCommand.fire)) 
+        // {
+        //     if(this.arsenal.equipped().isAmmoInClip())
+        //     {
+        //         console.log(`SRV: will animate fire`);
+        //         //this.playerPuppet.createFireImpactEffects(this.playerPuppet.getFireRay(cliCommand.forward));
+        //         this.animateFire(cliCommand.fire); // think we don't want this method to exist?
+        //         // instead fire can take another param: isClientControlledPlayer ? : boolean
+        //     } else 
+        //     {
+        //         this.arsenal.equipped().playReload();
+        //     }
+        // }
+        this.arsenal.equipped().fire(cliCommand.fire);
+        return this.getFireRay(cliCommand.forward);
+       
 
-        this.arsenal.equipped().fire(duh);
+        
 
-        return this.getFireRay(forward);
     }
 
     getFireRay(forward : Vector3) : Nullable<PickingInfo>

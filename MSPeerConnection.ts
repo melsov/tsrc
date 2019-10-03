@@ -25,8 +25,14 @@ const servers = {'iceServers': [
     {'urls': 'turn:numb.viagenie.ca','credential': 'thisisagoldennugget','username': 'mattpoindexter@gmail.com'}
     ]};
 
-const dataChannelSend : HTMLTextAreaElement = <HTMLTextAreaElement> document.querySelector('textarea#dataChannelSend');
-const dataChannelReceive : HTMLTextAreaElement = <HTMLTextAreaElement> document.querySelector('textarea#dataChannelReceive');
+const dataChannelSend  = <HTMLDivElement> document.getElementById('dataChannelSendIndicator');
+const dataChannelReceive  = <HTMLDivElement> document.getElementById('dataChannelReceiveIndicator');
+
+var _receiveIndicatorToggle : number = 0;
+function nextReceiveIndicatorColor() : string {
+    _receiveIndicatorToggle = (_receiveIndicatorToggle + 1) % 2;
+    return _receiveIndicatorToggle === 0 ? "#AAAA00" : "#DD9900";
+}
 
 const DEBUG_MSPEER : boolean = false;
 function logMSPEER(str : string) : void
@@ -104,10 +110,10 @@ export class MSPeerConnection
             const readyState = this. sendChannel.readyState;
             logMSPEER('Send channel state is: ' + readyState);
             if (readyState === 'open') {
-                dataChannelSend.disabled = false;
-                dataChannelSend.focus();
+                dataChannelSend.style.backgroundColor = "#00FF00";
+                // dataChannelSend.focus();
             } else {
-                 dataChannelSend.disabled = true;
+                 dataChannelSend.style.backgroundColor = "#FF0000";
             }
             this. SendChanStateChangedCallback(this.sendChannel.readyState, this);
         };
@@ -123,7 +129,7 @@ export class MSPeerConnection
         }
 
         const OnRecMsg = (event : MessageEvent) => {
-            dataChannelReceive.value = event.data;
+            dataChannelReceive.style.backgroundColor = nextReceiveIndicatorColor();
             this.recExtraCallback(this.theirId, event);
         }
 
@@ -244,10 +250,7 @@ export class MSPeerConnection
         this. localConnection.close();
 
         logMSPEER('Closed peer connections');
-        
-         dataChannelSend.value = '';
-         dataChannelReceive.value = '';
-         dataChannelSend.disabled = true;
+       
 
     }
 

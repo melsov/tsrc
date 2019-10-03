@@ -167,13 +167,17 @@ export class MPlayerInput
                 if(canvas.requestPointerLock) {
                     canvas.requestPointerLock();
                 }
+            } 
+            else // if pointer not locked don't fire etc.
+            {
+                this.handlePointer(true, ev, pickInfo, type);
             }
 
-            this.handlePointer(true, ev, pickInfo, type);
         };
 
         scene.onPointerUp = (ev : PointerEvent, pickInfo :  Nullable<PickingInfo>, type : PointerEventTypes) => {
-            this.handlePointer(false, ev, pickInfo, type);
+            if(this.isPointerLocked)
+                this.handlePointer(false, ev, pickInfo, type);
         }
     }
     

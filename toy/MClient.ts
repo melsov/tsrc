@@ -139,7 +139,7 @@ export class MClient
         playerPuppet.addDebugLinesInRenderLoop();
         this.setupManagers();
 
-        this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh, Vector3.Up().scale(8));
+        this.fpsCam = new FPSCam(this.game.camera, playerPuppet.mesh, Vector3.Zero());
 
         playerPuppet.setupClientPlayer(this.fpsCam.cam);
 
@@ -190,7 +190,7 @@ export class MClient
     {
         if (this.stageOfLifeType === next) 
         {
-            console.log(`same life stage type: ${next}`);
+            console.log(`same life stage: ${next} RETURN`);
             return;
         }
 
@@ -198,11 +198,12 @@ export class MClient
         // TODO: show hide LOut UI
 
         if(this.stageOfLifeType === StageType.DeadConfigureLoadout && next === StageType.Alive) {
-            console.warn(`loop will be in game`);
+            console.log(`DeadCL to ALIVE`);
             this.requestLoadOutFunc = () => {};
             this.loop = this.inGameRenderLoop;
         }
         else if(this.stageOfLifeType === StageType.Alive && next === StageType.Bardo) {
+            console.log(`ALIVE to BARDO`);
             this.lobbyUI.showHide(true);
             this.input.exitPointerLock(this.game.canvas, this.game.scene);
             this.stageOfLifeType = next;
@@ -211,11 +212,12 @@ export class MClient
             });
         }
         else if(this.stageOfLifeType === StageType.Bardo && next === StageType.DeadConfigureLoadout) {
-            console.warn(`loop will be choose lo`);
+            console.log(`Bardo to DeadCL`);
             // TODO: be dead for a bit
             this.lobbyUI.showEnterButton();
             this.lobbyUI.showHide(true);
             this.input.exitPointerLock(this.game.canvas, this.game.scene);
+            this.requestLoadOutFunc = () => {};
             this.loop = this.chooseLoadOutRenderLoop;
         }
         this.stageOfLifeType = next;
@@ -247,7 +249,6 @@ export class MClient
     private chooseLoadOutRenderLoop() : void
     {
         this.sampleInputTimer.tick(this.game.engine.getDeltaTime(), () => {
-            //this.sendLoadOutRequest();
             this.requestLoadOutFunc();
             this.processServerUpdates();
             // TODO: check whether we log out of firebase if we leave during this loop
@@ -399,7 +400,7 @@ export class MClient
 
             let nextState = serverUpdate.worldState;
 
-            this.debugDeltaUpdates.text = "";
+            this.debugDeltaUpdates.text = `MSG size ${msg.length} | `;
            
             let absNextState : Nullable<MWorldState> = null;
             if(!nextState.isDelta) {
@@ -424,14 +425,14 @@ export class MClient
                 absNextState.ackIndex = nextState.ackIndex;
 
                 // DEBUG
-                if(serverUpdate.dbgSomeState) {
-                    this.debugDeltaUpdates.text += `SVR BASE ${serverUpdate.dbgSomeState.ackIndex} - CLI BASE ${baseState.ackIndex} = ${serverUpdate.dbgSomeState.ackIndex - baseState.ackIndex}`;
-                    // this.debugDeltaUpdates.text += "TEST " + MWorldState.TestMinusThenAddBack(serverUpdate.debugAbsStateAnyway, baseState) + " | ";
-                    this.debugDeltaUpdates.text += " | same base? " + baseState.debugDifsToString(serverUpdate.dbgSomeState);
+                // if(serverUpdate.dbgSomeState) {
+                //     this.debugDeltaUpdates.text += `SVR BASE ${serverUpdate.dbgSomeState.ackIndex} - CLI BASE ${baseState.ackIndex} = ${serverUpdate.dbgSomeState.ackIndex - baseState.ackIndex}`;
+                //     // this.debugDeltaUpdates.text += "TEST " + MWorldState.TestMinusThenAddBack(serverUpdate.debugAbsStateAnyway, baseState) + " | ";
+                //     this.debugDeltaUpdates.text += " | same base? " + baseState.debugDifsToString(serverUpdate.dbgSomeState);
 
-                } else {
-                    this.debugDeltaUpdates.text += "no abs";
-                }
+                // } else {
+                //     this.debugDeltaUpdates.text += "no abs";
+                // }
             }
 
             // curate state buffer
@@ -484,7 +485,7 @@ export class MClient
             this.clientViewState.purgeDeleted(nextState);
             
             
-            let nextCliPlayerState = <MNetworkPlayerEntity> nextState.lookup.getValue(this.playerEntity.netId);
+            let nextCliPlayerState = <MNetworkPlayerEntity> absNextState.lookup.getValue(this.playerEntity.netId);
             // put the cli controlled player in the server authoritative state
             this.playerEntity.applyAuthStateToCliTargets();
             this.playerEntity.applyNonDeltaData(nextCliPlayerState);
@@ -520,8 +521,6 @@ export class MClient
                         j++;
                     }
                 }
-
-                this.debugDeltaUpdates.text += `pending after: ${this.pendingInputs.length}`
             }
            
         } // END WHILE TRUE

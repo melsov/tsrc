@@ -37,7 +37,7 @@ export class MWorldState
 
     }
 
-    // lamentable
+    // lamentable (spaghetti)
     public cloneAuthStateToInterpData() : MWorldState
     {
         let clone = new MWorldState();
@@ -82,7 +82,6 @@ export class MWorldState
         callback : (relevancy : MServer.Relevancy, key : string, ent : MNetworkEntity) => void
         ) : void
     {
-        
 
         if(observer === undefined) { return; } // ws; }
         
@@ -272,22 +271,6 @@ export class MWorldState
         return b.debugDifsToString(a);
     }
 
-    // NOT IN USE
-    public plus(other : MWorldState) : MWorldState
-    {
-        let delta = new MWorldState();
-        this.lookup.forEach((key : string, ent : MNetworkEntity) => {
-            let otherEnt = other.lookup.getValue(key);
-            if(otherEnt == undefined){
-                delta.lookup.setValue(key, ent.clone());
-            } else {
-                delta.lookup.setValue(key, ent.plus(otherEnt));
-            }
-        });
-
-        return delta;
-    } 
-
     public setEntity(uid : string, ent : MNetworkEntity) : void
     {
         this.lookup.setValue(uid, ent);
@@ -335,28 +318,28 @@ export class MWorldState
 
     // client side (acutally nowhere, not in use!)
     // purge?
-    public apply(state : MWorldState) : void
-    {
-        state.lookup.forEach((key : string, nextEnt : MNetworkEntity) => {
-            let ent = this.lookup.getValue(key);
+    // public apply(state : MWorldState) : void
+    // {
+    //     state.lookup.forEach((key : string, nextEnt : MNetworkEntity) => {
+    //         let ent = this.lookup.getValue(key);
 
-            if(ent == undefined) 
-            {
-                ent = this.makeNetEntFrom(key, nextEnt);
-            }
-            else 
-            {
-                ent.apply(nextEnt);
-            }
-        });
-    }
+    //         if(ent == undefined) 
+    //         {
+    //             ent = this.makeNetEntFrom(key, nextEnt);
+    //         }
+    //         else 
+    //         {
+    //             ent.apply(nextEnt);
+    //         }
+    //     });
+    // }
 
     public purgeDeleted(state : MWorldState) : void
     {
         let deletables = new Array<string> ();
         state.lookup.forEach((key : string, ent : MNetworkEntity) => {
             let e = this.lookup.getValue(key);
-            if(e != undefined && ent.shouldDelete)
+            if(e !== undefined && ent.shouldDelete)
             {
                 deletables.push(key);
             }
@@ -383,7 +366,9 @@ export class MWorldState
            
             ent.updateAuthState(updateEnt);
             ent.pushInterpolationBuffer();
-            
+
+            // health
+            ent.applyNonDelta(updateEnt);
         });
 
         // the update may not contain all entities

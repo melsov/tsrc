@@ -335,16 +335,17 @@ export class MServer
                         this.debugCompareCliClaimedPosRo(cli, qcmd.cmd.debugPosRoAfterCommand, qcmd.cmd.lastWorldStateAckPiggyBack);
                 }
 
-
                 // confirm messages with return hashes
                 cli.confirmableMessageBook.confirmArray(qcmd.cmd.confirmHashes);
+                cli.confirmableMessageBook.reinstateUnconfirmed(10);
 
                 if(!cli.canRespawn) { console.log(`can't respawn ${qcmd.UID}`); }
 
                 // player loadout request
                 if(qcmd.cmd.loadOutRequest && cli.canRespawn
-                    && (cli.loadOut === null || MLoadOut.GetHash(cli.loadOut) !== MLoadOut.GetHash(qcmd.cmd.loadOutRequest) ||
-                    (playerEnt && playerEnt.health <= 0))
+                    && (cli.loadOut === null)
+                    //  || MLoadOut.GetHash(cli.loadOut) !== MLoadOut.GetHash(qcmd.cmd.loadOutRequest) ||
+                    // (playerEnt && playerEnt.health <= 0))
                 ) 
                 {
                     let spawnPos = new Vector3(-3, 8, 4);
@@ -451,11 +452,15 @@ export class MServer
         }
 
         if(!firingPlayer.playerPuppet.arsenal.equipped().isAmmoInClip()) {
-            firingPlayer.recordWeaponFired(FireActionType.Reloaded);
+            firingPlayer.playerPuppet.arsenal.equipped().playReload();
+            firingPlayer.recordWeaponAction(FireActionType.Reloaded);
             return;
         } 
 
-        firingPlayer.recordWeaponFired(FireActionType.Fired);
+        //
+        // Will fire. check what they hit
+        //
+        firingPlayer.recordWeaponAction(FireActionType.Fired);
 
         // TODO: isolate. for example. don't even rewind state (maybe this messes with us?)
         // with rewind disabled. check if rays behave
@@ -487,7 +492,7 @@ export class MServer
         // render the scene here. Seems needed to get the rewound position to register before raycasting
         this.game.scene.render();
         let pickingInfo : Nullable<PickingInfo> = null;
-        pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand.fire, cliCommand.forward);
+        pickingInfo = firingPlayer.playerPuppet.commandFire(cliCommand);
 
         //DEBUG
         let debugFireStr = "DBUG";
@@ -558,7 +563,9 @@ export class MServer
                             // start respawn timer
                             let hitCli = this.clients.getValue(hitPlayer.netId);
                             if(hitCli) {
-
+                                // TODO: save their loadout somewhere
+                                hitCli.loadOut = null; 
+                                // TODO: start respawn timer
                             }
                         }
                     }
@@ -730,12 +737,9 @@ export class MServer
                         CLOSE_BY_RELEVANT_RADIUS);
                     let su = new ServerUpdate(state, cli.lastProcessedInput);  
 
-                    // TODO: convert Server Update to 'any'
-                    // so that we can decline to add properties that we don't need
-
                     // send confirmable messages
                     cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
-                    su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages();
+                    su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessagesMoveToSent();
                     
                     cli.remotePlayer.peer.send(PackWorldState(su));
 
@@ -753,16 +757,14 @@ export class MServer
                             this.game.scene,
                             cli.relevantBook,
                             CLOSE_BY_RELEVANT_RADIUS);
-                        
-                       
 
                         let su = new ServerUpdate(delta, cli.lastProcessedInput);
 
-                        su.dbgSomeState = cliBaseState; // this.stateBuffer.last(); // DEBUG
+                        // su.dbgSomeState = cliBaseState; // this.stateBuffer.last(); // DEBUG
 
                         // send confirmable messages
                         cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
-                        su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessages();
+                        su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessagesMoveToSent();
 
                         cli.remotePlayer.peer.send(PackWorldState(su));
 
@@ -771,7 +773,7 @@ export class MServer
                             to: ${delta.ackIndex} - from: ${delta.deltaFromIndex} = ${delta.ackIndex - delta.deltaFromIndex}`;
 
                     } else {
-                        throw new Error(`cant happen`);
+                        throw new Error(`no way. cant happen.`);
                     }
                    
                 }

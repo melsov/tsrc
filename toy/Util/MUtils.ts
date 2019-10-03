@@ -51,6 +51,22 @@ export namespace MUtils
         return Math.floor(Math.random() * max);    
     }
 
+    export const Epsilon : number = .0000001;
+
+    export function IsWithinEpsilon(f : number) : boolean 
+    {
+        return f < Epsilon && f > -Epsilon;
+    }
+
+    export function AbsGreaterThanEpsilon(f:number) : boolean 
+    {
+        return f > Epsilon || f < -Epsilon;    
+    }
+
+    export function VecHasNonEpsilon(v:Vector3) : boolean 
+    {
+        return AbsGreaterThanEpsilon(v.x) || AbsGreaterThanEpsilon(v.y) || AbsGreaterThanEpsilon(v.z);
+    }
 
     export function AssertVecNotNan(v : Vector3, err ? : string) { Assert(!VecContainsNan(v), err != undefined ? err : `vec was nan ${v}`); }
 

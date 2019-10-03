@@ -3,6 +3,7 @@ import { Dictionary } from "typescript-collections";
 import { Nullable, Vector3, Ray } from "babylonjs";
 import { MLoadOut } from "../bab/MPuppetMaster";
 import { BHelpers } from "../MBabHelpers";
+import { MShotgun } from "../bab/NetworkEntity/weapon/MWeapon";
 
 export enum ConfirmableType
 {
@@ -159,64 +160,39 @@ export class ConfirmableMessageOrganizer
 
 }
 
+class SentCM
+{
+    public attempts : number = 0;
+    constructor(
+        public msg : CMValueType,
+    ) {}
+
+}
+
 //
 // intended for use server side (per client)
 // manage unconfirmed confirmable messages
 //
 export class MConfirmableMessageBook
 {
-    // TODO: mechanism to count send attempts
     private book : Dictionary<number, CMValueType> = new Dictionary<number, CMValueType>();
+    // count send attempts
+    private sent = new Dictionary<number, SentCM>();
 
-    public getUnconfirmedMessages() : CMValueType[]
+    public getUnconfirmedMessagesMoveToSent() : CMValueType[]
     {
-        return this.book.values();
+        let msgs = this.book.values();
+        this.moveToSent();
+        return msgs;
     }
 
-    public appendMessagesToObj(jj : any) : void
-    {
-        jj.cm = this.getUnconfirmedMessages();
-    }
-
-    public static messagesFromJSON(jj : any) : (undefined | CMValueType[])
-    {
-        return jj.cm;
-    }
-
-    public static appendHashArrayToObj(jj : any, messages : CMValueType[]) : void
-    {
-        if(messages.length === 0) return;
-
-        let hashes = new Array<number>();
-        for(let i=0; i<messages.length; ++i) {
-            hashes.push(messages[i].hashcode());
-        }
-
-        jj.hs = hashes;
-    }
-
-    private static hashesFromJSON(jj : any) : (undefined | number[])
-    {
-        return jj.hs;
-    }
-
-    public confirmWith(jj : any) : void 
-    {
-        let hashes = MConfirmableMessageBook.hashesFromJSON(jj);
-        if(hashes === undefined) { return ;}
-
-        for(let i=0; i < hashes.length; ++i){
-            this.confirm(hashes[i]);
-        }
-    }
-
-    public add(msg : CMValueType) : void
+    private add(msg : CMValueType) : void
     {
         let hash = msg.hashcode();
         this.book.setValue(hash, msg);
     }
 
-    public addArray(cms : CMValueType[]) : void
+    addArray(cms : CMValueType[]) : void
     {
         for(let i=0; i<cms.length; ++i)
         {
@@ -224,16 +200,56 @@ export class MConfirmableMessageBook
         }
     }
 
-    public confirm(hash : number) : void
+    private confirm(hash : number) : void
     {
-        this.book.remove(hash);
+        //this.book.remove(hash);
+        this.sent.remove(hash);
     }
 
-    public confirmArray(hashes : number[]) : void
+    private moveToSent() : void 
+    {
+        // move all to sent
+        let keys = this.book.keys();
+        for(let i=0; i<keys.length; ++i) 
+        {
+            let removed = this.book.remove(keys[i]); 
+            if(removed) {
+                let sent = this.sent.getValue(keys[i]);
+                if(!sent) {
+                    sent = new SentCM(removed);
+                    this.sent.setValue(keys[i], sent);
+                }
+            }
+        }
+    }
+
+    private incrementAttempts() : void
+    {
+        this.sent.forEach((key, msg) => {
+            msg.attempts++;
+        })
+    }
+
+    confirmArray(hashes : number[]) : void
     {
         for(let i=0; i< hashes.length; ++i) 
         {
             this.confirm(hashes[i]);
+        }
+        this.incrementAttempts();
+    }
+
+    //
+    // Mark messages for sending
+    // if confirm attempts mod attemptsThreshold == 0
+    reinstateUnconfirmed(attemptsThreshold : number = 10) : void
+    {
+        let keys = this.sent.keys();
+        for(let i=0; i<keys.length; ++i)
+        {
+            let sentMsg = this.sent.getValue(keys[i]);
+            if(sentMsg && sentMsg.attempts % attemptsThreshold === 0)
+                this.book.setValue(keys[i], sentMsg.msg);
         }
     }
 

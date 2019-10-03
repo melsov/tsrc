@@ -27,7 +27,6 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     public applyCliCommand(cliCommand : CliCommand) : void
     {
         this.playerPuppet.pushCliTargetWithCommand(cliCommand);
- 
     }
     
     createImmediateEffectsFromInput(cliCommand : CliCommand) : void
@@ -35,8 +34,6 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
         // if(this.playerPuppet.arsenal.equipped().hasAmmoAndKeyAllowsFire(cliCommand.fire)) 
         if(this.playerPuppet.arsenal.equipped().keyAllowsFire(cliCommand.fire)) 
         {
-            // if(cliCommand.fire) {
-            //TODO: if has ammo
             if(this.playerPuppet.arsenal.equipped().isAmmoInClip())
             {
                 console.log(`will animate fire`);
@@ -49,7 +46,6 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
                 this.playerPuppet.arsenal.equipped().playReload();
             }
         }
-
     }
 
     applyAuthStateToCliTargets() : void 
@@ -63,7 +59,7 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     {
         this.shouldDelete = ent.shouldDelete;
     
-        this.health = ent.health;
+        // this.health = ent.health; // should be updated already
         this.statusHUD.update();
     }
 
