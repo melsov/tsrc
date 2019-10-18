@@ -12,6 +12,6 @@ export class MStatusHUD
 
     public update() : void
     {
-        this.container.innerText = `health: ${this.player.health}`;
+        this.container.innerText = `health: ${this.player.health.val}`;
     }
 }

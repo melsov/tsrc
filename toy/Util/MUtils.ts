@@ -2,6 +2,7 @@ import { Vector3, Ray, Camera, Matrix, Color3, Material, Nullable, expandToPrope
 import { BHelpers } from "../MBabHelpers";
 import { GridMaterial } from "babylonjs-materials";
 import { Set } from "typescript-collections";
+import { Float16Array, getFloat16, setFloat16, hfround } from "@petamoriken/float16";
 
 export namespace MUtils 
 {
@@ -79,7 +80,7 @@ export namespace MUtils
         return Math.round(f * 300)/300;
     }
 
-    export function RoundVecInPlaceToReasonable(v:Vector3) 
+    export function RoundMoveVecInPlace(v:Vector3) 
     {
         v.x = RoundToReasonable(v.x);
         v.y = RoundToReasonable(v.y);
@@ -92,6 +93,22 @@ export namespace MUtils
 
     export function FormatVector(v:Vector3, places : number) : string {
         return `[${FormatFloat(v.x, places)},${FormatFloat(v.y, places)},${FormatFloat(v.z,places)}]`;
+    }
+
+    export function WriteVecToFloatArray(fsrView : any, v : Vector3, offset : number) : void 
+    {
+        fsrView[offset] = v.x;
+        fsrView[offset + 1] = v.y;
+        fsrView[offset + 2] = v.z;
+    }
+
+    export function ReadVec(floatArray: any, offset : number) : Vector3 
+    {
+        return new Vector3(
+            floatArray[offset],
+            floatArray[offset + 1],
+            floatArray[offset + 2]
+        );    
     }
 
 
@@ -172,7 +189,7 @@ export namespace MUtils
         return sphere;
     }
 
-    export function GetSliderNumber(from : number, to : number, t : number) : number
+    export function InverseLerp(from : number, to : number, t : number) : number
     {
         if(Math.abs(to - from) < .00001) return 0;
         return (t - from) / (to - from);
@@ -275,6 +292,12 @@ export namespace MUtils
         });
         cache = null; // Enable garbage collection
         return result;
+    }
+
+    export function PadToString(n:number, padding : number = 3, padChar : string = '0') {
+        let str = `${n}`;
+        while(str.length < padding) str = padChar + str;
+        return str;
     }
 
 }

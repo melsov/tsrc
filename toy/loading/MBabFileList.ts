@@ -44,7 +44,7 @@ export class MEntiyBabListLookup
         for(let i=0; i<entities.length; ++i) 
         {
 
-            console.log(`got entity: ${entities[i].name}`);
+            // console.log(`got entity: ${entities[i].name}`);
             if(!entities[i].name || entities[i].name.length === 0) { continue; }
 
             if(loader.lookup.getValue(entities[i].name)) { throw new Error(`probably don't want to specify an entity twice`); }

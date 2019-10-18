@@ -63,7 +63,6 @@ export class MSkeletonAnimator
             entityAnimationBook.forEach(actionSpecKeys[i], (boneName, anim) => {
                 let bI = this.skeleton.getBoneIndexByName(boneName);
                 if(bI >= 0) {
-                    console.log(`anim has keys? ${anim.getKeys().length}`); // if no keys. babjs will throw an error (accessing getKeys()[0])
 
                     // TODO: verify that we need to clone (we are assuming that multiple AnimGroups referencing the same anim is bad)
                     ag.addTargetedAnimation(anim.clone(), bones[bI]); // clone! 
@@ -96,7 +95,6 @@ export class MSkeletonAnimator
         }
         aa.animationGroup.play(loop);
 
-        console.log(`skel bone 0 location? ${this.skeleton.bones[0].position}. bone 0 parent: `);
         this.playAudios(aa);
     }
 

@@ -224,8 +224,10 @@ export class MSPeerConnection
     {
         try 
         {
-            if(this.sendChannel.readyState == 'open')
+            if(this.sendChannel.readyState === 'open')
                 this. sendChannel.send(s);
+            else 
+                console.log(`won't send. readyState is: ${this.sendChannel.readyState}. unsent msg:  ${s}`)
         } 
         catch(err )
         {

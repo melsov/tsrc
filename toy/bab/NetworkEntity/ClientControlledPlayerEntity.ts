@@ -1,6 +1,5 @@
 import { MNetworkPlayerEntity, CliTarget } from "./MNetworkEntity";
 import { CliCommand } from "../MPlayerInput";
-import { ServerSimulateTickMillis } from "../../MServer";
 import { MUtils } from "../../Util/MUtils";
 import { MStatusHUD } from "../../html-gui/MStatusHUD";
 import { Vector3 } from "babylonjs";
@@ -19,6 +18,7 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
         super(_netId, pos);
 
         this.statusHUD = new MStatusHUD(this);
+
     }
 
     //
@@ -27,7 +27,7 @@ export class ClientControlledPlayerEntity extends MNetworkPlayerEntity
     public applyCliCommand(cliCommand : CliCommand) : void
     {
         this.playerPuppet.pushCliTargetWithCommand(cliCommand);
-    }
+    } 
     
     createImmediateEffectsFromInput(cliCommand : CliCommand) : void
     {

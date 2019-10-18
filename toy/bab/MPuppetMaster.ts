@@ -63,7 +63,7 @@ export class MLoadOut
         return loadOut;
     }
 }
-
+ 
 export class MPuppetMaster
 {
     private puppets : Dictionary<string, Puppet> = new Dictionary<string, Puppet>();

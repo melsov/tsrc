@@ -66,12 +66,14 @@ export class MTransientStateBook
         jOb.tr = book;
     }
 
-    static ExtractFromObject(jOb : any) : MTransientStateBook
+    static ExtractFromObject(jOb : any) : Nullable<MTransientStateBook>
     {
-        let book = new MTransientStateBook();
+        if(jOb.tr === undefined) { return null; }
 
         let tsObj = jOb.tr;
-        if(tsObj !== undefined) 
+        let book = new MTransientStateBook();
+
+        // if(tsObj !== undefined) 
         {
             if(tsObj.hom !== undefined) {
                 let hits = <Array<MProjectileHitInfo>> tsObj.hom;

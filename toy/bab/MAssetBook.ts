@@ -134,7 +134,7 @@ export namespace MLoader
 
         private static TextureFromJSON(jTex : any, scene : Scene) : Texture | undefined
         {
-            console.log(`got tex URL: ${jTex.url}. for name: ${jTex.name}`);
+            // console.log(`got tex URL: ${jTex.url}. for name: ${jTex.name}`);
             let tex = new Texture(jTex.url, scene);
             tex.name = jTex.name;
             return tex;
@@ -332,7 +332,7 @@ export namespace MLoader
             
             // images
             let imageLoadables = GetLoadablesFrom(mapID, new ImageFiles());
-            console.log(`***LOADABLE IMAGES: ${JSON.stringify(imageLoadables)}`);
+            //console.log(`***LOADABLE IMAGES: ${JSON.stringify(imageLoadables)}`);
             imageLoadables.forEach((loadable : Loadable) => {
                 let task = this.am.addTextureTask(`task-${loadable.fileName}`, `${loadable.folder}/${loadable.fileName}`);
                 this.loadedImages.setValue(loadable.getKey(), task);
@@ -346,7 +346,7 @@ export namespace MLoader
             })
 
             this.am.onProgress = (remaining : number, total : number, task : AbstractAssetTask) => {
-                console.log(`percent done: ${remaining/total}. current: ${task.name}`);
+                // console.log(`percent done: ${remaining/total}. current: ${task.name}`);
             }
 
             this.am.onFinish = (tasks : AbstractAssetTask[]) => {

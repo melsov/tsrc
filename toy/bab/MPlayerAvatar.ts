@@ -23,6 +23,7 @@ export const DEBUG_SPHERE_DIAMETER : number = 2;
 export const PLAYER_GRAVITY : number = -3;
 export const MAX_HEALTH : number = 25;
 
+
 //TODO: (global) test running server on a headless chrome instance
 
 const corners : Array<Vector3> = [
@@ -71,6 +72,8 @@ export class MPlayerAvatar implements Puppet
     public readonly arsenal : MArsenal;
     public readonly weaponRoot : TransformNode;
 
+    private charMat : GridMaterial;
+
     constructor
     (
         _scene : Scene,
@@ -89,6 +92,9 @@ export class MPlayerAvatar implements Puppet
         this.debugHitPointMesh = MeshBuilder.CreateBox(`dbg-hit-point-${_name}`, { size : .5}, _scene);
         // this.toggleFireIndicator(false);
 
+        this.charMat = new GridMaterial(`main-mat`, mapPackage.scene);
+        this.charMat.mainColor = Color3.Blue();
+
         //this.importCharacter(_name, _scene, _startPos);
         this.importCharacterFromBook(mapPackage);
 
@@ -102,6 +108,7 @@ export class MPlayerAvatar implements Puppet
         this.weaponRoot = new TransformNode(`weaponRoot`, _scene);
         
         this.setupDefaultWeapon();
+
 
         // cam follow target
         // this._camFollowTarget = new TransformNode('cam-follow', _scene);
@@ -161,14 +168,15 @@ export class MPlayerAvatar implements Puppet
         //m.name = `${_name}-body`;
         let m = orig.clone(`${_name}-body`, this.mesh);
         // Tags.AddTagsTo(this.mesh, GameEntityTags.PlayerObject);
-        let charMat = new GridMaterial(`mesh-mat-${_name}`, _scene);
-        charMat.mainColor = Color3.Purple();
-        m.material = charMat;
-        
-        // this.mesh.isPickable = false;
-        // m.parent = this.mesh;
+        m.material = this.charMat;
+    }
 
-        
+    setCharacterColor(c : Color3, lineColor ? : Color3)
+    {
+        this.charMat.mainColor = c;
+        if(lineColor){
+            this.charMat.lineColor = lineColor;
+        }
     }
 
 
@@ -619,32 +627,32 @@ export class MPlayerAvatar implements Puppet
         this.cliTarget = nextCliTarget.clone();
     }
 
-    private static MoveDir(cmd : CliCommand) : Vector3
+    private static GetMove(cmd : CliCommand, speed : number) : Vector3
     {
         let groundForward = MUtils.ProjectOnNormal(cmd.forward, Vector3.Up()).normalize();
         let groundRight = Vector3.Cross(Vector3.Up(), groundForward);
-        return groundForward.scale(cmd.vertical).add(groundRight.scale(cmd.horizontal)).normalize();
+        let move = groundForward.scale(cmd.vertical).add(groundRight.scale(cmd.horizontal)).normalize().scale(speed);
+        MUtils.RoundMoveVecInPlace(move);
+        return move;
     }
 
     private makeNextTargetWithCollisions(cmd : CliCommand) : CliTarget
     {
         let nextTarget = this.cliTarget.clone();
         nextTarget.timestamp = cmd.timestamp + ServerSimulateTickMillis;
-        nextTarget.interpData.position.addInPlace(MPlayerAvatar.MoveDir(cmd).scale(this.moveSpeed));
+        nextTarget.interpData.position.addInPlace(MPlayerAvatar.GetMove(cmd, this.moveSpeed));
         nextTarget.interpData.position = this.getRayCollisionAdjustedPos(nextTarget.interpData.position.clone());
-
-
         return nextTarget;
     }
 
-    private nextInterpDataFrom(cmd : CliCommand) : InterpData
-    {
-        let id = this.getInterpData();
-        let mv = MPlayerAvatar.MoveDir(cmd).scale(this.moveSpeed);
-        id.position.addInPlace(mv);
-        id.position = this.getRayCollisionAdjustedPos(id.position.clone());
-        return id;
-    }
+    // private nextInterpDataFrom(cmd : CliCommand) : InterpData
+    // {
+    //     let id = this.getInterpData();
+    //     let mv = MPlayerAvatar.MoveDir(cmd).scale(this.moveSpeed);
+    //     id.position.addInPlace(mv);
+    //     id.position = this.getRayCollisionAdjustedPos(id.position.clone());
+    //     return id;
+    // }
 
     // Troubles: we really need to consider separating 
     // the auth state (interp data) from a puppet's (for example) pos / rotation
@@ -732,7 +740,7 @@ export class MPlayerAvatar implements Puppet
     private interpolateWithCliTargets() : void
     {
         let now = +new Date();
-        let lerper = MUtils.GetSliderNumber(this.lastCliTarget.timestamp, this.cliTarget.timestamp, now);
+        let lerper = MUtils.InverseLerp(this.lastCliTarget.timestamp, this.cliTarget.timestamp, now);
         lerper = MUtils.Clamp01(lerper);
         let l = CliTarget.Lerp(this.lastCliTarget, this.cliTarget, lerper);
         // this.moveToPosWithRayCollisions(l.position);

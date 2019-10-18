@@ -27,11 +27,17 @@ import { CheckboxUI } from "./html-gui/CheckboxUI";
 import { UIDisplayDif } from "./html-gui/UIDisplayVectorDif";
 import { UILabel } from "./html-gui/UILabel";
 import { MStateBuffer } from "./MStateBuffer";
+import { ShortNetId } from "./helpers/ShortNetId";
+import { ServerUpdate, WelcomePackage } from "./comm/CommTypes";
+import { UINumberSet } from "./html-gui/UINumberSet";
+
 
 const debugElem : HTMLDivElement = <HTMLDivElement> document.getElementById("debug");
 
 export const ServerSimulateTickMillis : number = 10;
-export const ServerBroadcastTickMillis : number = 20;
+export const ServerBroadcastTickMillis : number = 500;
+// export const InterpolationRewindMillis : number = ServerBroadcastTickMillis * 2;
+
 const ServerRecalcPingTickMillis : number = 40;
 
 export const MillisPerExpandedSeconds : number = 1800; // a bit longer than standard seconds
@@ -40,11 +46,14 @@ export const AwaitRespawnExpandedSeconds : number = 5;
 export const CLOSE_BY_RELEVANT_RADIUS : number = 4; // silly small for testing
 export const AUDIBLE_RADIUS : number = CLOSE_BY_RELEVANT_RADIUS;
 
+export const DEBUG_SHADOW_UI_UPDATE_RATE = 0;
+
 export enum Relevancy
 {
     NOT_RELEVANT = 0,
     RECENTLY_RELEVANT = 20
 }
+
 
 //
 // Encapsulate objects needed per client
@@ -59,7 +68,7 @@ class CliEntity
     public confirmableMessageBook : MConfirmableMessageBook = new MConfirmableMessageBook();
 
     public loadOut : Nullable<MLoadOut> = null;
-    public readonly relevantBook : Collections.Dictionary<string, number> = new Collections.Dictionary<string, number>();
+    public readonly relevantBook = new Collections.Dictionary<string, number>();
 
     // Respawn
     private _canRespawn : boolean = true;
@@ -117,6 +126,8 @@ export class MServer
 
     private currentState : MWorldState = new MWorldState();
 
+    private debugShadowState = new MWorldState();
+
     //public readonly tickRate : number = ServerUpdateTickMillis;
 
     private lastTime : number = 0;
@@ -126,16 +137,16 @@ export class MServer
 
     // private clients : Collections.Dictionary<tfirebase.User, CliEntity> = new Collections.Dictionary<tfirebase.User, CliEntity>(tfirebase.StringForUser);
     private clients : Collections.Dictionary<string, CliEntity> = new Collections.Dictionary<string, CliEntity>();
+    // private shortIdBook = new ShortNetId();
 
-    private debugForceAbsUpdate = new CheckboxUI("forceAbsUpdate", false);
-
-    // = new GameMain(TypeOfGame.Server);
+    private debugForceAbsUpdate = new CheckboxUI("forceAbsUpdate", true, true); // force true
+    private debugRelevancyFilter = new CheckboxUI("Relevancy", true);
 
     getGameMain() : GameMain { return this.game; }
 
     private puppetMaster : MPuppetMaster;
 
-    private cmdQueue : LagQueue<QueuedCliCommand> = new LagQueue<QueuedCliCommand>(LAG_MS_FAKE);
+    private cmdQueue : LagQueue<QueuedCliCommand> = new LagQueue<QueuedCliCommand>(LAG_MS_FAKE, 0, 0, 6);
     // private cmdQueue : Collections.Queue<QueuedCliCommand> = new Collections.Queue<QueuedCliCommand>();
 
     private simulateTimer : MTickTimer = new MTickTimer(ServerSimulateTickMillis);
@@ -155,6 +166,13 @@ export class MServer
     private debugUIShowCliClaimDif = new UIDisplayDif.UIDisplayVectorDif("cliClaimDisplay", "cli claim", "claim", "auth state");
     private debugDeltaUps = new UILabel('debugDeltaUps');
 
+    public static readonly debugShadowRewindUI = new UINumberSet('ShadowRewind', 3, 
+        ['broadcast multiple', 'include lag(B)', 'calc w/ ping gauge(B)'], 
+        [2, 1, 1]);
+
+    private welcomePackages = new Collections.Dictionary<RemotePlayer, WelcomePackage>();
+    private shortIdBook = new ShortNetId();
+
     constructor(
         private game : GameMain
     )
@@ -162,7 +180,8 @@ export class MServer
         this.game.init();
         this.puppetMaster = new MPuppetMaster(this.game.mapPackage);
 
-        //if(!_wan)
+        this.currentState.ackIndex = 1; // start with 1 to facilitate checking clients who have never ack'd
+
         this.lobbyUI.showHide(false);
 
         this.debugHitPointMesh = MeshBuilder.CreateCylinder(`srvr-show-hit-debug`, {
@@ -199,8 +218,10 @@ export class MServer
         if(!this.debugWatchClaimPosCli)
             this.debugWatchClaimPosCli = cli;
 
-        let netPlayer = new MNetworkPlayerEntity(user.UID);
-        let playerPuppet : MPlayerAvatar =  <MPlayerAvatar> this.puppetMaster.getPuppet(netPlayer);
+        let shortId = this.shortIdBook.map(user.UID);
+
+        let netPlayer = new MNetworkPlayerEntity(shortId);
+        let playerPuppet : MPlayerAvatar = <MPlayerAvatar> this.puppetMaster.getPuppet(netPlayer);
         netPlayer.setupPuppet(playerPuppet);
         playerPuppet.addDebugLinesInRenderLoop();
 
@@ -211,8 +232,8 @@ export class MServer
 
         netPlayer.setupShadow(this.game.scene, this.clients.keys().length - 1);
 
-        this.currentState.lookup.setValue(user.UID, netPlayer);
-        this.currentState.ackIndex = 1; // start with 1 to facilitate checking clients who have never ack'd
+        this.currentState.lookup.setValue(netPlayer.netId, netPlayer);
+        // this.currentState.lookup.setValue(user.UID, netPlayer);
 
         // TODO: better spawn point chooser
         let bardoSpawnPos = this.clients.keys().length % 2 === 1 ? new Vector3(-3, 12, 0) : new Vector3(3, 12, 0);
@@ -222,6 +243,47 @@ export class MServer
         remotePlayer.peer.recExtraCallback = (uid : string, e : MessageEvent) => {
             this.handleClientMessage(uid, e.data);
         }
+
+        this.welcomePackages.setValue(remotePlayer, new WelcomePackage(shortId));
+
+        this.debugAddAShadowPlayer(netPlayer.netId);
+    }
+
+    private debugAddAShadowPlayer(origNetId : string) : void 
+    {
+        let shNetId = origNetId;
+        let shplayer = new MNetworkPlayerEntity(shNetId);
+        let shpuppet = new MPlayerAvatar(this.game.scene, Vector3.Zero(), shNetId, this.game.mapPackage);
+        shplayer.setupPuppet(shpuppet);
+        // customize does nothing
+        this.debugShadowState.lookup.setValue(shplayer.netId, shplayer);
+
+        shpuppet.setCharacterColor(new Color3(.5, 1, .8), Color3.White());
+
+    }
+
+    private spamWelcomePackages() 
+    {
+        this.welcomePackages.forEach((remotePlayer, wpp) => {
+            let wppStr = WelcomePackage.Pack(wpp); // JSON.stringify(wpp);
+            remotePlayer.peer.send(wppStr);
+        });
+    }
+
+    private confirmWelcomed(userID : string) 
+    {
+        let keys = this.welcomePackages.keys();
+        if(keys.length === 0)
+            return;
+
+        for(let i=0; i<keys.length; ++i) {
+            if(userID === keys[i].user.UID) {
+                this.welcomePackages.remove(keys[i]);
+                return;
+            }
+        }
+
+        console.log(`confirm welcome failed for ${keys.length} keys : user is : ${userID}`);
     }
 
     public disconnect(fuser : tfirebase.User) : void
@@ -231,11 +293,15 @@ export class MServer
             cli.didDisconnect = true;
         }
 
-        let ent = this.currentState.lookup.getValue(fuser.UID);
+        
+        let ent = this.getPlayerEntityFromCurrentState(fuser.UID); //  this.currentState.lookup.getValue(fuser.UID);
         if(ent != undefined)
         {
             ent.shouldDelete = true;
         }
+
+        this.shortIdBook.remove(fuser.UID);
+
     }
 
     public begin() : void
@@ -257,6 +323,7 @@ export class MServer
         
         
         this.broadcastTimer.tick(this.game.engine.getDeltaTime(), () => {
+            this.spamWelcomePackages();
             // old update
             // this.processCliCommands();
             this.pushStateBuffer();
@@ -287,6 +354,24 @@ export class MServer
         this.cmdQueue.enqueue(new QueuedCliCommand(MCli.CommandFromString(msg), uid, +new Date()));
     }
 
+
+    private getPlayerEntityFromCurrentState(longId : string) : MNetworkPlayerEntity | undefined
+    {
+        let shortId = this.shortIdBook.getShortId(longId);
+        if(shortId) {
+            return <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(shortId);
+        }
+        return undefined; 
+    }
+
+    private getEnt(ws : MWorldState, longId : string) : MNetworkEntity | undefined
+    {
+        let shortId = this.shortIdBook.getShortId(longId);
+        if(shortId) {
+            return ws.lookup.getValue(shortId);
+        }
+        return undefined;
+    }
     // TODO: players are either not starting in a spot that synced with server pos
     // or evolving out of synced pos. 
     
@@ -298,30 +383,29 @@ export class MServer
         while(true)
         {
             qcmd = this.cmdQueue.dequeue();
-            if(qcmd == undefined) { break; }
+            if(qcmd === undefined) { break; }
 
-            let playerEnt : (MNetworkPlayerEntity | undefined) = <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(qcmd.UID);
-            if(playerEnt != undefined)
+
+            this.confirmWelcomed(qcmd.UID);
+            
+            let playerEnt = this.getPlayerEntityFromCurrentState(qcmd.UID); // : (MNetworkPlayerEntity | undefined) = <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(qcmd.UID);
+            if(playerEnt !== undefined)
             {
                 playerEnt.applyCliCommandServerSide(qcmd.cmd);
                 this.handleFire(playerEnt, qcmd, true);
 
                 // fake decrement health
                 if(qcmd.cmd.debugTriggerKey) {
-                    playerEnt.health--;
-                    if(playerEnt.health === 0) {
-                        this.confirmableBroadcasts.push(new MExitDeath(
-                            playerEnt.netId,
-                            playerEnt.netId,
-                            new Ray(new Vector3(), Vector3.One(), 1),
-                            'test murdeded'));
+                    playerEnt.health.takeValue = playerEnt.health.val - 1;
+                    if(playerEnt.health.val === 0) {
+                        this.deathNotice(playerEnt.netId, playerEnt.netId);
                     }
                 }
             }
 
             // last processed input
             let cli = this.clients.getValue(qcmd.UID);
-            if(cli != undefined)
+            if(cli !== undefined)
             {
                 cli.lastProcessedInput = qcmd.cmd.inputSequenceNumber;
                 cli.lastAckIndex = qcmd.cmd.lastWorldStateAckPiggyBack;
@@ -354,7 +438,7 @@ export class MServer
                     // broadcast a player entry
                     this.confirmableBroadcasts.push(new MPlayerReentry(
                         `${qcmd.UID} has entered the game`,
-                        qcmd.UID,
+                        this.shortIdBook.getShortIdUnsafe(qcmd.UID), // qcmd.UID,
                         qcmd.cmd.loadOutRequest,
                         spawnPos
                     ));
@@ -365,7 +449,7 @@ export class MServer
                     cli.loadOut = qcmd.cmd.loadOutRequest;
                     if(playerEnt !== undefined) 
                     {
-                        playerEnt.health = MAX_HEALTH;
+                        playerEnt.health.takeValue = MAX_HEALTH;
                         playerEnt.playerPuppet.customize(qcmd.cmd.loadOutRequest);
                         playerEnt.teleport(spawnPos);
                     }
@@ -375,15 +459,12 @@ export class MServer
         this.DebugClis();
     }
 
-    
-
-
     private debugCompareCliClaimedPosRo(cli : CliEntity, claim : InterpData, lastAck : number) : void 
     {
         let ws = this.stateBuffer.stateWithAckIndex(lastAck);
         if(!ws) { return; }
 
-        let ent = ws.lookup.getValue(cli.remotePlayer.user.UID);
+        let ent = this.getEnt(ws, cli.remotePlayer.user.UID); // ws.lookup.getValue(cli.remotePlayer.user.UID);
         if(!ent) { throw new Error(`this is sure not to happen`); }
 
         let plent = <MNetworkPlayerEntity>ent.getPlayerEntity();
@@ -544,7 +625,7 @@ export class MServer
                         3,
                         pickingInfo.pickedPoint ? pickingInfo.pickedPoint : Vector3.Zero());
 
-                    let beforeHealth = hitPlayer.health;
+                    let beforeHealth = hitPlayer.health.val;
 
                     //if(!debugTestFire)
                     {
@@ -552,14 +633,10 @@ export class MServer
                         debugFireStr += ` ${hitPlayer.netId} got hit`;
                         
                         // became dead?
-                        if(beforeHealth > 0 && hitPlayer.health <= 0) 
+                        if(beforeHealth > 0 && hitPlayer.health.val <= 0) 
                         {
-                            this.confirmableBroadcasts.push(new MExitDeath(
-                                hitPlayer.netId,
-                                firingPlayer.netId,
-                                pickingInfo.ray,
-                                'wasted' ));
-
+                            this.deathNotice(hitPlayer.netId, firingPlayer.netId);
+                            
                             // start respawn timer
                             let hitCli = this.clients.getValue(hitPlayer.netId);
                             if(hitCli) {
@@ -595,6 +672,15 @@ export class MServer
 
     }
 
+    private deathNotice(deadNetId : string, killerNetId : string)  
+    {
+        this.confirmableBroadcasts.push(new MExitDeath(
+            deadNetId,
+            killerNetId,
+            new Ray(new Vector3(), Vector3.One(), 1),
+            'test murdeded'));
+    }
+
     private findClient(netId : string) : Nullable<CliEntity>
     {
         let cli = this.clients.getValue(netId);
@@ -624,18 +710,21 @@ export class MServer
     
     private rewindState(state : MWorldState, firingPlayer : MNetworkPlayerEntity, cmdArriveTimestamp : number) : boolean
     {
-
         let cli = this.findClient(firingPlayer.netId);
         if(!cli) { console.log('no cli?'); return false;}
 
-        
-        // let rewindPointMillis = +new Date() - cli.roundTripMillis / 2 - ServerBroadcastTickMillis;
         let rewindPointMillis = cmdArriveTimestamp - cli.roundTripMillis / 2;
 
+        return this.rewindStateAt(state, rewindPointMillis, firingPlayer.netId);
+    }
+
+    private debugRewindPosLabel = new UILabel('rewind-pos-label', "#FFFFFF", undefined, "SRVR", "18px");
+
+    private rewindStateAt(state : MWorldState, rewindPointMillis : number, skipNetId ? : string) : boolean
+    {
+        
         let a : Nullable<MWorldState> = null;
         let b : Nullable<MWorldState> = null;
-
-        this.debugStateBufferTimes(rewindPointMillis, cli);
 
         // find the state buffers just before (a) and
         // just after (b) rewindPointMillis
@@ -651,7 +740,8 @@ export class MServer
 
         if(a && b)
         {
-            state.rewindPlayers(a, b, MUtils.GetSliderNumber(a.timestamp, b.timestamp, rewindPointMillis), firingPlayer.netId);
+            this.DebugSetRewindLabel(a.ackIndex,`REWIND ACK: ${(a.ackIndex % 100)}`);
+            state.rewindPlayers(a, b, MUtils.InverseLerp(a.timestamp, b.timestamp, rewindPointMillis), skipNetId);
             return true;
         } else {
             console.warn(`get a b failed: a; ${a} b: ${b} `);
@@ -680,13 +770,57 @@ export class MServer
 
         this.debugHud.show(str);
     }
+
+    public static DebugGetRewindConfig() : DebugRewindConfig
+    {
+        return new DebugRewindConfig(
+            ServerBroadcastTickMillis * MServer.debugShadowRewindUI.getValueAt(0),
+            MServer.debugShadowRewindUI.getValueAt(1) !== 0,
+            MServer.debugShadowRewindUI.getValueAt(2) !== 0
+        );
+    }
      
+    private getPlayerUnsafe(ws : MWorldState, netId : string) : MNetworkPlayerEntity
+    {
+        return <MNetworkPlayerEntity> ws.lookup.getValue(netId);
+    }
+
+    private debugLastRewindNow : number = 0;
+
+    private debugPushShadowState()
+    {
+        this.debugShadowState.debugShadowCopyPlayerInterpDataFrom(this.currentState);
+
+
+        ///TODO: rewind to the exact time. so that shadows mimic other players in a cli view
+        // Arrange / design so that other interpolation and rewinding use the same function?
+        // We think it should be the same rewind time delta (but with an offset to account for cli-to-server lag?)
+        if(!this.debugWatchClaimPosCli) { return; }
+
+        let rewindConfig = MServer.DebugGetRewindConfig();
+        let lag = rewindConfig.includeLag ? LAG_MS_FAKE + (rewindConfig.includePingOverTwo ? this.debugWatchClaimPosCli.pingGauge.average / 2 : 0) : 0;
+
+        this.rewindStateAt(this.debugShadowState, +new Date() - rewindConfig.InterpRewindMillis - lag);
+      
+    }
+
+    private DebugSetRewindLabel(dNow : number, str : string) : void 
+    {
+        // let dNow = +new Date();
+        if(dNow - this.debugLastRewindNow > DEBUG_SHADOW_UI_UPDATE_RATE) {
+            this.debugRewindPosLabel.text = str;
+            this.debugLastRewindNow = dNow;
+        }
+    }
+
     // shift an old state out of the state buffer, if buffer is max len
     // create a new MWorldState and push it to the state buffer
     // clone the current state to the new state
     // bonus points: use a ring buffer for fewer allocations?
     private pushStateBuffer() : void
     {
+        // this.debugPushShadowState(); // WANT
+
         this.stateBuffer.pushACloneOf(this.currentState);
         this.currentState.ackIndex++;
         
@@ -708,11 +842,13 @@ export class MServer
     //    send them this delta (along with an update number)
     private broadcastToClients(forceAbsUpdate ? : boolean) : void
     {
-        this.clients.forEach((user : string, cli : CliEntity) => 
+        this.clients.forEach((longUID : string, cli : CliEntity) => 
         {
+            let user = this.shortIdBook.getShortId(longUID);
             // let cliDif = this.currentState.ackIndex - cli.lastProcessedInput;
             // console.log(`server current ack: ${this.currentState.ackIndex}. cli.lastAck: ${cli.lastAckIndex} statebuffer len ${this.stateBuffer.length}`);
             // if(cliDif > 0)
+            if(user)
             {
                 
                 // add a ping gauge entry every nth broadcast
@@ -734,14 +870,21 @@ export class MServer
                         <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user), 
                         this.game.scene, 
                         cli.relevantBook, 
-                        CLOSE_BY_RELEVANT_RADIUS);
+                        CLOSE_BY_RELEVANT_RADIUS * (this.debugRelevancyFilter.checked ? 1 : 9999999));
+
+                    // TODO: Cli side problem mostly: when an other player becomes irrelevant for a bit and then relevant again,
+                    // we see 'shaking' (looks like very spread out, weird, out of order interp data)
+                    // the shaking only appears in a cli view of the other.
+                    // seems to go away, quickly or immediately, when abs updates are forced
+                    // diagnose, fix
+
                     let su = new ServerUpdate(state, cli.lastProcessedInput);  
 
                     // send confirmable messages
                     cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
                     su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessagesMoveToSent();
                     
-                    cli.remotePlayer.peer.send(PackWorldState(su));
+                    cli.remotePlayer.peer.send(ServerUpdate.Pack(su));
 
                     this.debugDeltaUps.color = "#FFFF00";
                     this.debugDeltaUps.text = `AU cli.AckI: ${cli.lastAckIndex} from: ${state.deltaFromIndex} to: ${state.ackIndex}`;
@@ -756,7 +899,7 @@ export class MServer
                             <MNetworkPlayerEntity | undefined> this.currentState.lookup.getValue(user),
                             this.game.scene,
                             cli.relevantBook,
-                            CLOSE_BY_RELEVANT_RADIUS);
+                            CLOSE_BY_RELEVANT_RADIUS * (this.debugRelevancyFilter.checked ? 1 : 9999999));
 
                         let su = new ServerUpdate(delta, cli.lastProcessedInput);
 
@@ -766,11 +909,16 @@ export class MServer
                         cli.confirmableMessageBook.addArray(this.confirmableBroadcasts);
                         su.confirmableMessages = cli.confirmableMessageBook.getUnconfirmedMessagesMoveToSent();
 
-                        cli.remotePlayer.peer.send(PackWorldState(su));
+                        cli.remotePlayer.peer.send(ServerUpdate.Pack(su)); 
 
-                        this.debugDeltaUps.text = `DU cli.AckI == deltaFrom ? 
-                            ${cli.lastAckIndex === delta.deltaFromIndex ? "YES" : "NO DIF: " + (cli.lastAckIndex - delta.deltaFromIndex)} 
-                            to: ${delta.ackIndex} - from: ${delta.deltaFromIndex} = ${delta.ackIndex - delta.deltaFromIndex}`;
+                        if(this.debugWatchClaimPosCli === cli) {
+                            let deltaUser = delta.lookup.getValue(user);
+                            if(deltaUser) {
+                                let plent = deltaUser.getPlayerEntity();
+                                if(plent)
+                                    this.debugDeltaUps.text = `SEND DELTA POS: ${plent.position}`;
+                            }
+                        }
 
                     } else {
                         throw new Error(`no way. cant happen.`);
@@ -798,62 +946,15 @@ export class MServer
 
 }
 
-export class ServerUpdate
+export class DebugRewindConfig
 {
-
-    public confirmableMessages : Nullable<Array<MAbstractConfirmableMessage>> = null;
-    public dbgSomeState : Nullable<MWorldState> = null;
-
     constructor(
-        public worldState : MWorldState,
-        public lastInputNumber : number
+        public InterpRewindMillis : number, 
+        public includeLag : boolean,
+        public includePingOverTwo : boolean
     ){}
 }
 
-function PackWorldState(serverUpdate : any) : string
-{
-    let str = JSON.stringify(serverUpdate); // do we need a packer func?
-    return str;
-}
-
-export function UnpackWorldState(serverUpdateString : string) : ServerUpdate
-{
-    let jObj = JSON.parse(serverUpdateString);
-
-    
-    let ws : MWorldState = new MWorldState() //jObj.worldState['isDelta']);
-    ws.ackIndex = jObj.worldState.ackIndex;
-    ws.deltaFromIndex = jObj.worldState.deltaFromIndex;
-    
-    let table = jObj.worldState.lookup.table;
-    for(let item in table)
-    {
-        let mnetKV = table[item];
-        ws.lookup.setValue(mnetKV['key'], MNetworkEntity.deserialize(mnetKV['value']));
-    }
-
-    let su = new ServerUpdate(ws, jObj['lastInputNumber']); //ws;
-    su.confirmableMessages = MAnnounce.FromServerUpdate(jObj);
-
-    // DEBUG
-    if(jObj.dbgSomeState)
-    {
-        let aws = new MWorldState();
-        aws.ackIndex = jObj.dbgSomeState.ackIndex;
-        aws.deltaFromIndex = jObj.dbgSomeState.deltaFromIndex;
-
-        let aTable = jObj.dbgSomeState.lookup.table;
-        for(let item in aTable)
-        {
-            let kv = aTable[item];
-            aws.lookup.setValue(kv['key'], MNetworkEntity.deserialize(kv['value']));
-        }
-        su.dbgSomeState = aws;
-    }
-    
-
-    return su;
-}
 
 // museum
 

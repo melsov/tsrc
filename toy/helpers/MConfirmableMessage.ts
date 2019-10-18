@@ -67,6 +67,7 @@ export class MPlayerReentry extends MAbstractConfirmableMessage
         public netId : string,
         public loadOut : MLoadOut,
         public spawnPos : Vector3
+        // public shortId : string
     ) {
         super(ConfirmableType.PlayerReentry);
     }
@@ -117,8 +118,9 @@ export class ConfirmableMessageOrganizer
         arr.push(cm);
     }
 
-    addArray(cms : CMValueType[]) : void
+    addArray(cms : Nullable< CMValueType[]>) : void
     {
+        if(!cms) { return; }
         for (let i=0; i<cms.length; ++i)
         {
             this.add(cms[i]);

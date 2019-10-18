@@ -59,7 +59,7 @@ export class CliCommand
     
     get hasAMove() : boolean { return this.horizontal * this.horizontal > 0 || this.vertical * this.vertical > 0 || this.fire > KeyMoves.DownUpHold.WentUp; } 
 }
-
+ 
 class InputKeys
 {
     fwd : boolean = false;

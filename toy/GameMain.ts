@@ -108,6 +108,11 @@ export class GameMain
         // this.makeMousePickPlane();
 
         this.setupCrosshairs();
+
+        // Watch for browser/canvas resize events
+        window.addEventListener("resize", () => { 
+            this.engine.resize();
+        });
     }
      
     private importSene() : void  
@@ -232,6 +237,11 @@ export class GameMain
                 this.scene.render();
         });
 
+    }
+
+    tearDown()
+    {
+        this.engine.stopRenderLoop();
     }
 
 

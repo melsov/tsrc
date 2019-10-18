@@ -4,7 +4,7 @@ class LagMessage {
     payload : string = "";
 }
 
-export const LAG_MS_FAKE = 100;
+export const LAG_MS_FAKE = 500;
 
 export class LagNetwork
 {

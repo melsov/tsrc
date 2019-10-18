@@ -38,6 +38,14 @@ export class MStateBuffer
     first() : MWorldState { return this.stor[0]; }
     last() : MWorldState { return this.stor[this.stor.length - 1]; }
 
+    atIndexFromLast(iFromLast : number) : Nullable<MWorldState> { 
+        let place = this.stor.length - iFromLast;
+        if(place < 1 || place > this.stor.length) { return null; }
+        return this.stor[place - 1];
+    }
+
+    atIndexFromLastUnsafe(iFromLast : number) : MWorldState { return this.stor[this.stor.length - 1 - iFromLast]; }
+
     stateWithAckIndex(ack : number) : Nullable<MWorldState>
     {
         for(let i=0; i<this.stor.length; ++i) {

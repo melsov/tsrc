@@ -55,6 +55,8 @@ var fbaseUser : tfirebase.User;
 const useMSPeer = <HTMLInputElement> document.getElementById("useMSPeer");
 var _wantListenServer : boolean = true;
 
+const killGameButton = <HTMLButtonElement> document.getElementById("kill-game");
+
 export function init()
 {
     useMSPeer.checked = true; // force
@@ -72,6 +74,7 @@ function SetupClient()
 
     firebase.auth().onAuthStateChanged( usr => {
         if(usr){
+            console.log(`fb auth user: chars: ${usr.uid.length} . ${usr.uid} `);
             // for testing use a fake UID (firebase.Auth gives same UID per browser)
             fbaseUser = fakeUserConfig();  // usr;
             EnterLobby();
@@ -92,17 +95,34 @@ function EnterLobby()
             userClone.isServer = false;
             userClone.UID = `${userClone.UID}-LS`;
             console.log(`creating listen server client`);
-            localClientPeerListenServer = new MLocalPeer(room, userClone, (isServer : boolean) => {});
+
+            // TEST delay second client for listen servers
+            window.setTimeout(() => {
+                localClientPeerListenServer = new MLocalPeer(room, userClone, (isServer : boolean) => {});
+            }, 7000);
+
+            // WANT
+            // localClientPeerListenServer = new MLocalPeer(room, userClone, (isServer : boolean) => {});
         }
     });
 
-    window.onbeforeunload =  () => {
+    const closeDown = () => {
         // if we don't await. does this always happen?
+        console.log(`close down func`);
         localPeer.onClose();
         if(localClientPeerListenServer !== undefined) {
             localClientPeerListenServer.onClose();
         }
+    }
+
+    window.onbeforeunload =  () => {
+        closeDown();
     };
+
+    killGameButton.onclick = () => {
+        console.log(`kill game clicked`);
+        closeDown();
+    }
 }
 
 var readyCount = 0;
